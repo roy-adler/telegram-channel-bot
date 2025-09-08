@@ -1,10 +1,11 @@
 # pip install python-telegram-bot[webhooks]==21.4
 import os
-from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 
-TOKEN = os.environ["BOT_TOKEN"]
-PUBLIC_URL = os.environ["PUBLIC_URL"].rstrip("/")   # e.g. https://my-bot.royadler.de
+TOKEN        = os.environ["BOT_TOKEN"]                 # from @BotFather
+TOKEN        = os.environ["BOT_API_URL"]               # Telegram bot api
+PUBLIC_URL   = os.environ["PUBLIC_URL"].rstrip("/")    # e.g. https://my-bot.royadler.de
 SECRET_TOKEN = os.environ.get("SECRET_TOKEN", "change-me")
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
