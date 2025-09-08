@@ -1,7 +1,13 @@
 name: Build and Push Docker image to GHCR
-on: { push: { branches: [main] } }
 
-permissions: { contents: read, packages: write }
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
@@ -9,22 +15,28 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
+      # Dockerfile + requirements.txt live in telegram-bot/
       - name: Compute deps hash
         id: deps
-        run: echo "hash=${{ hashFiles('requirements.txt') }}" >> $GITHUB_OUTPUT
+        run: echo "hash=${{ hashFiles('telegram-bot/requirements.txt') }}" >> $GITHUB_OUTPUT
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - uses: docker/login-action@v3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker meta
+      - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -34,13 +46,13 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
-            # extra tag for the deps layer versioning:
             type=raw,value=deps-${{ steps.deps.outputs.hash }}
 
       - name: Build & push (multi-arch + cache)
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./telegram-bot
+          file: ./telegram-bot/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
