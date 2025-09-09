@@ -4,16 +4,17 @@ FROM python:${PY_VERSION}-slim AS base
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 
-# ---- deps layer (only invalidates when requirements.txt changes)
+# ---- deps layer (rebuilds only when requirements.txt changes)
 FROM base AS deps
-RUN --mount=type=cache,target=/root/.cache/pip apt-get update && apt-get install -y --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+# (no extra apt packages needed; keep cache mount for pip)
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --upgrade pip && pip install --no-input -r requirements.txt
+    python -m pip install --upgrade pip \
+ && pip install --no-input -r requirements.txt
 
-# ---- runtime (copy venv/site-packages from deps; then app code)
+# ---- runtime
 FROM base AS runtime
+# copy installed deps from deps stage
 COPY --from=deps /usr/local/lib/python*/site-packages /usr/local/lib/python*/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 
