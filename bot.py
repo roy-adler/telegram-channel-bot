@@ -3,10 +3,10 @@ import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
-TOKEN        = os.environ["BOT_TOKEN"]                 # from @BotFather
-TOKEN        = os.environ["BOT_API_URL"]               # Telegram bot api
-PUBLIC_URL   = os.environ["PUBLIC_URL"].rstrip("/")    # e.g. https://my-bot.royadler.de
-SECRET_TOKEN = os.environ.get("SECRET_TOKEN", "change-me")
+TOKEN        = os.environ["TELEGRAM_BOT_TOKEN"]                  # from @BotFather
+BOT_API_URL  = os.environ["TELEGRAM_BOT_API_URL"].rstrip("/")
+PUBLIC_URL   = os.environ["TELEGRAM_BOT_PUBLIC_URL"].rstrip("/")
+SECRET_TOKEN = os.environ.get("TELEGRAM_BOT_SECRET_TOKEN", "change-me")
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hello from webhook!")
@@ -14,8 +14,8 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 app = (
     Application.builder()
     .token(TOKEN)
-    .base_url("https://telegram-bot-api.royadler.de/bot")
-    .base_file_url("https://telegram-bot-api.royadler.de/file/bot")
+    .base_url(f"https://{BOT_API_URL}/bot")
+    .base_file_url(f"https://{BOT_API_URL}/file/bot")
     .build()
 )
 app.add_handler(CommandHandler("start", start))
