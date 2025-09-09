@@ -18,10 +18,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Dockerfile + requirements.txt live in telegram-bot/
+      # Dockerfile + requirements.txt
       - name: Compute deps hash
         id: deps
-        run: echo "hash=${{ hashFiles('telegram-bot/requirements.txt') }}" >> $GITHUB_OUTPUT
+        run: echo "hash=${{ hashFiles('requirements.txt') }}" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -51,8 +51,8 @@ jobs:
       - name: Build & push (multi-arch + cache)
         uses: docker/build-push-action@v6
         with:
-          context: ./telegram-bot
-          file: ./telegram-bot/Dockerfile
+          context: ./
+          file: Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
