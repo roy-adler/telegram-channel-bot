@@ -1,4 +1,3 @@
-# pip install python-telegram-bot[webhooks]==21.4
 import os
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
@@ -29,3 +28,4 @@ if __name__ == "__main__":
         url=f"{PUBLIC_URL}/{TOKEN}",
         drop_pending_updates=True,
     )
+
