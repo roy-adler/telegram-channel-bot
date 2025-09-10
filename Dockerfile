@@ -14,8 +14,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # ---- runtime
 FROM base AS runtime
+ARG PY_VERSION
 # copy installed deps from deps stage
-COPY --from=deps /usr/local/lib/python*/site-packages /usr/local/lib/python*/site-packages
+COPY --from=deps /usr/local/lib/python${PY_VERSION}/site-packages /usr/local/lib/python${PY_VERSION}/site-packages
 COPY --from=deps /usr/local/bin /usr/local/bin
 
 # app code LAST → tiny rebuild on change
