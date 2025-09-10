@@ -23,9 +23,8 @@ if __name__ == "__main__":
     app.run_webhook(
         listen="0.0.0.0",
         port=8080,
-        webhook_path=f"/{TOKEN}",
         secret_token=SECRET_TOKEN,
-        url=f"{PUBLIC_URL}/{TOKEN}",
+        webhook_url=f"{PUBLIC_URL}/{TOKEN}",
         drop_pending_updates=True,
     )
 
