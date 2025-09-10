@@ -1,6 +1,6 @@
 import os
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN        = os.environ["TELEGRAM_BOT_TOKEN"]                  # from @BotFather
 BOT_API_URL  = os.environ["TELEGRAM_BOT_API_URL"].rstrip("/")
@@ -10,6 +10,9 @@ SECRET_TOKEN = os.environ.get("TELEGRAM_BOT_SECRET_TOKEN", "change-me")
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Hello from webhook!")
 
+async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("hey")
+
 app = (
     Application.builder()
     .token(TOKEN)
@@ -18,6 +21,7 @@ app = (
     .build()
 )
 app.add_handler(CommandHandler("start", start))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 if __name__ == "__main__":
     app.run_webhook(
