@@ -1,6 +1,10 @@
 import os
+from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# Load environment variables from .env file
+load_dotenv()
 
 TOKEN        = os.environ["TELEGRAM_BOT_TOKEN"]                  # from @BotFather
 BOT_API_URL  = os.environ["TELEGRAM_BOT_API_URL"].rstrip("/")
@@ -24,11 +28,15 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 if __name__ == "__main__":
-    app.run_webhook(
-        listen="0.0.0.0",
-        port=8080,
-        secret_token=SECRET_TOKEN,
-        webhook_url=f"{PUBLIC_URL}/{TOKEN}",
-        drop_pending_updates=True,
-    )
+    # For testing, use polling instead of webhooks
+    # Comment out the webhook line and uncomment the polling line below
+    # app.run_webhook(
+    #     listen="0.0.0.0",
+    #     port=8080,
+    #     secret_token=SECRET_TOKEN,
+    #     webhook_url=f"{PUBLIC_URL}/{TOKEN}",
+    #     drop_pending_updates=True,
+    # )
+    # Uncomment the line below for polling mode (easier for testing):
+    app.run_polling()
 
