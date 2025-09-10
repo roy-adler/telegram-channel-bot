@@ -3,30 +3,30 @@ name: Build and Push Docker image to GHCR
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 permissions:
   contents: read
   packages: write
+  security-events: write
 
 env:
-  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  # GHCR requires lowercase image names
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/exam-practicer
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # Dockerfile + requirements.txt
-      - name: Compute deps hash
-        id: deps
-        run: echo "hash=${{ hashFiles('requirements.txt') }}" >> $GITHUB_OUTPUT
-
-      - name: Set up QEMU
+      - name: Set up QEMU (for cross-platform builds)
         uses: docker/setup-qemu-action@v3
 
-      - name: Set up Buildx
+      - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
@@ -36,7 +36,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Docker metadata
+      - name: Extract Docker metadata (tags, labels)
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -46,16 +46,42 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=deps-${{ steps.deps.outputs.hash }}
 
-      - name: Build & push (multi-arch + cache)
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: ./
-          file: Dockerfile
+          context: .
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_NAME }}:latest
+          format: "sarif"
+          output: "trivy-results.sarif"
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+
+      - name: Upload Trivy scan results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        if: |
+          always() &&
+          hashFiles('trivy-results.sarif') != '' &&
+          (github.event_name == 'push' ||
+          github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          sarif_file: trivy-results.sarif
+
+      - name: Save SARIF as artifact (for forked PRs)
+        uses: actions/upload-artifact@v4
+        if: always() && github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name != github.repository
+        with:
+          name: trivy-results
+          path: trivy-results.sarif
