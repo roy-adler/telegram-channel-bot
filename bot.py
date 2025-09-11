@@ -14,7 +14,7 @@ from api import run_api, set_bot_app
 print("Environment variables loaded:")
 print(f"TELEGRAM_BOT_TOKEN: {os.environ.get('TELEGRAM_BOT_TOKEN', 'NOT SET')[:10]}...")
 print(f"ADMIN_USER_ID: {os.environ.get('ADMIN_USER_ID', 'NOT SET')}")
-print(f"API_KEY: {os.environ.get('API_KEY', 'NOT SET')}")
+print(f"TELEGRAM_BOT_API_KEY: {os.environ.get('TELEGRAM_BOT_API_KEY', 'NOT SET')}")
 
 try:
     TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -60,6 +60,18 @@ def init_database():
             group_title TEXT,
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Create group_members table to track which users are in which groups
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id INTEGER,
+            user_id INTEGER,
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (group_id, user_id),
+            FOREIGN KEY (group_id) REFERENCES groups (group_id),
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     ''')
     
@@ -171,6 +183,28 @@ def add_group_to_db(group_id, group_title):
     conn.commit()
     conn.close()
 
+def add_user_to_group(group_id, user_id):
+    """Add a user to a group in the group_members table"""
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT OR IGNORE INTO group_members (group_id, user_id)
+        VALUES (?, ?)
+    ''', (group_id, user_id))
+    conn.commit()
+    conn.close()
+
+def remove_user_from_group(group_id, user_id):
+    """Remove a user from a group in the group_members table"""
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        DELETE FROM group_members 
+        WHERE group_id = ? AND user_id = ?
+    ''', (group_id, user_id))
+    conn.commit()
+    conn.close()
+
 def create_channel(channel_name, channel_secret, description, created_by):
     """Create a new channel"""
     conn = sqlite3.connect('data/bot_database.db')
@@ -259,6 +293,10 @@ async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user_to_db(user.id, user.username, user.first_name, user.last_name)
     
+    # If this is a group message, ensure the user is tracked in the group
+    if update.effective_chat.type in ['group', 'supergroup']:
+        add_user_to_group(update.effective_chat.id, user.id)
+    
     is_authenticated, channel_id = get_user_auth_status(user.id)
     if is_authenticated:
         channel_info = get_user_channel_info(user.id)
@@ -286,6 +324,9 @@ async def handle_new_member(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         else:
             # New human member added
             add_user_to_db(member.id, member.username, member.first_name, member.last_name)
+            # Add user to the group
+            add_user_to_group(update.effective_chat.id, member.id)
+            
             is_authenticated, channel_id = get_user_auth_status(member.id)
             if is_authenticated:
                 channel_info = get_user_channel_info(member.id)
@@ -320,6 +361,11 @@ async def join_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle channel join command"""
     user = update.effective_user
     add_user_to_db(user.id, user.username, user.first_name, user.last_name)
+    
+    # If this is a group message, ensure the user is tracked in the group
+    if update.effective_chat.type in ['group', 'supergroup']:
+        add_group_to_db(update.effective_chat.id, update.effective_chat.title or "Unknown Group")
+        add_user_to_group(update.effective_chat.id, user.id)
     
     if len(ctx.args) == 0:
         await update.message.reply_text("Please provide a channel secret. Usage: /join <channel_secret>")
@@ -520,6 +566,69 @@ async def admin_channel_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(response)
 
+async def admin_debug_groups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Admin command to debug group and user tracking"""
+    user = update.effective_user
+    if str(user.id) != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Access denied. Admin only.")
+        return
+    
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    
+    # Get all groups
+    cursor.execute('SELECT group_id, group_title, is_active FROM groups ORDER BY created_at DESC')
+    groups = cursor.fetchall()
+    
+    # Get all group members
+    cursor.execute('''
+        SELECT gm.group_id, g.group_title, gm.user_id, u.username, u.first_name, u.is_authenticated
+        FROM group_members gm
+        JOIN groups g ON gm.group_id = g.group_id
+        JOIN users u ON gm.user_id = u.user_id
+        ORDER BY gm.group_id, u.first_name
+    ''')
+    group_members = cursor.fetchall()
+    
+    # Get authenticated users
+    cursor.execute('''
+        SELECT user_id, username, first_name, last_name, is_authenticated, channel_id
+        FROM users 
+        WHERE is_authenticated = TRUE
+        ORDER BY first_name
+    ''')
+    auth_users = cursor.fetchall()
+    
+    conn.close()
+    
+    response = "🔍 **Debug Information**\n\n"
+    
+    # Groups section
+    response += f"📊 **Groups ({len(groups)}):**\n"
+    for group_id, group_title, is_active in groups:
+        status = "🟢" if is_active else "🔴"
+        response += f"{status} {group_title} (ID: {group_id})\n"
+    
+    # Group members section
+    response += f"\n👥 **Group Members ({len(group_members)}):**\n"
+    current_group = None
+    for group_id, group_title, user_id, username, first_name, is_authenticated in group_members:
+        if current_group != group_id:
+            response += f"\n**{group_title} (ID: {group_id}):**\n"
+            current_group = group_id
+        
+        auth_status = "✅" if is_authenticated else "❌"
+        display_name = first_name or username or f"User {user_id}"
+        response += f"  {auth_status} {display_name} (@{username or 'N/A'})\n"
+    
+    # Authenticated users section
+    response += f"\n🔐 **Authenticated Users ({len(auth_users)}):**\n"
+    for user_id, username, first_name, last_name, is_authenticated, channel_id in auth_users:
+        display_name = f"{first_name} {last_name}".strip() or username or f"User {user_id}"
+        response += f"• {display_name} (@{username or 'N/A'}) - Channel: {channel_id}\n"
+    
+    await update.message.reply_text(response, parse_mode='Markdown')
+
 app = (
     Application.builder()
     .token(TOKEN)
@@ -535,7 +644,16 @@ app.add_handler(CommandHandler("stats", admin_stats))
 app.add_handler(CommandHandler("create_channel", admin_create_channel))
 app.add_handler(CommandHandler("list_channels", admin_list_channels))
 app.add_handler(CommandHandler("channel_users", admin_channel_users))
+app.add_handler(CommandHandler("debug_groups", admin_debug_groups))
+async def handle_left_member(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Handle when members leave a group"""
+    if update.message.left_chat_member:
+        member = update.message.left_chat_member
+        if member.id != ctx.bot.id:  # Don't remove the bot from group_members
+            remove_user_from_group(update.effective_chat.id, member.id)
+
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
+app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, handle_left_member))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 app.add_handler(CallbackQueryHandler(handle_callback_query))
 

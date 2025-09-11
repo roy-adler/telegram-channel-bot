@@ -90,6 +90,75 @@ def send_message_to_user(user_id, message):
             return False
     return False
 
+def send_message_to_chat(chat_id, message):
+    """Send a message to a specific chat (group or private)"""
+    if bot_app:
+        try:
+            # Use asyncio to run the async function
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(bot_app.bot.send_message(chat_id=chat_id, text=message))
+            loop.close()
+            return True
+        except Exception as e:
+            print(f"Error sending message to chat {chat_id}: {e}")
+            return False
+    return False
+
+def get_chats_with_authenticated_users():
+    """Get all chats (groups and private chats) where at least one user is authenticated"""
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    
+    # Get all groups that have at least one authenticated user
+    cursor.execute('''
+        SELECT DISTINCT g.group_id, g.group_title, g.is_active
+        FROM groups g
+        INNER JOIN group_members gm ON g.group_id = gm.group_id
+        INNER JOIN users u ON gm.user_id = u.user_id
+        WHERE g.is_active = TRUE AND u.is_authenticated = TRUE
+    ''')
+    groups = cursor.fetchall()
+    
+    # Get all private chats (user_ids) that are authenticated
+    cursor.execute('''
+        SELECT DISTINCT user_id, username, first_name, last_name
+        FROM users 
+        WHERE is_authenticated = TRUE
+    ''')
+    private_chats = cursor.fetchall()
+    
+    conn.close()
+    
+    return groups, private_chats
+
+def get_chats_in_channel(channel_id):
+    """Get all chats (groups and private chats) where users from a specific channel are present"""
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    
+    # Get all groups that have at least one user from the specified channel
+    cursor.execute('''
+        SELECT DISTINCT g.group_id, g.group_title, g.is_active
+        FROM groups g
+        INNER JOIN group_members gm ON g.group_id = gm.group_id
+        INNER JOIN users u ON gm.user_id = u.user_id
+        WHERE g.is_active = TRUE AND u.channel_id = ? AND u.is_authenticated = TRUE
+    ''', (channel_id,))
+    groups = cursor.fetchall()
+    
+    # Get all private chats (user_ids) from the specified channel
+    cursor.execute('''
+        SELECT DISTINCT user_id, username, first_name, last_name
+        FROM users 
+        WHERE channel_id = ? AND is_authenticated = TRUE
+    ''', (channel_id,))
+    private_chats = cursor.fetchall()
+    
+    conn.close()
+    
+    return groups, private_chats
+
 def authenticate_api():
     """Check if the API request is authenticated"""
     api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
@@ -130,7 +199,7 @@ def get_users():
 
 @app.route('/api/broadcast', methods=['POST'])
 def broadcast_message():
-    """Broadcast a message to all authenticated users"""
+    """Broadcast a message to all chats where authenticated users are present"""
     if not authenticate_api():
         return jsonify({"error": "Unauthorized"}), 401
     
@@ -143,45 +212,62 @@ def broadcast_message():
     if not message.strip():
         return jsonify({"error": "Message cannot be empty"}), 400
     
-    # Get all authenticated users
-    users = get_authenticated_users()
+    # Get all chats with authenticated users
+    groups, private_chats = get_chats_with_authenticated_users()
     
-    if not users:
+    if not groups and not private_chats:
         return jsonify({
-            "error": "No authenticated users found",
+            "error": "No chats with authenticated users found",
             "sent_to": 0
         }), 404
     
-    # Send message to all users
+    # Send message to all chats
     success_count = 0
-    failed_users = []
+    failed_chats = []
     
-    for user in users:
-        user_id = user[0]
-        if send_message_to_user(user_id, message):
+    # Send to groups
+    for group_id, group_title, is_active in groups:
+        if send_message_to_chat(group_id, message):
             success_count += 1
         else:
-            failed_users.append({
-                "user_id": user_id,
-                "username": user[1],
-                "first_name": user[2]
+            failed_chats.append({
+                "chat_id": group_id,
+                "chat_type": "group",
+                "chat_title": group_title
             })
+    
+    # Send to private chats
+    for user_id, username, first_name, last_name in private_chats:
+        if send_message_to_chat(user_id, message):
+            success_count += 1
+        else:
+            failed_chats.append({
+                "chat_id": user_id,
+                "chat_type": "private",
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name
+            })
+    
+    total_chats = len(groups) + len(private_chats)
     
     response = {
         "message": "Broadcast completed",
-        "total_users": len(users),
+        "total_chats": total_chats,
+        "groups": len(groups),
+        "private_chats": len(private_chats),
         "sent_to": success_count,
-        "failed": len(failed_users)
+        "failed": len(failed_chats)
     }
     
-    if failed_users:
-        response["failed_users"] = failed_users
+    if failed_chats:
+        response["failed_chats"] = failed_chats
     
     return jsonify(response)
 
 @app.route('/api/broadcast-to-channel', methods=['POST'])
 def broadcast_to_channel():
-    """Broadcast a message to users in a specific channel"""
+    """Broadcast a message to chats where users from a specific channel are present"""
     if not authenticate_api():
         return jsonify({"error": "Unauthorized"}), 401
     
@@ -212,41 +298,58 @@ def broadcast_to_channel():
             "sent_to": 0
         }), 400
     
-    # Get users in the channel
-    users = get_users_in_channel(channel_id)
+    # Get chats where users from this channel are present
+    groups, private_chats = get_chats_in_channel(channel_id)
     
-    if not users:
+    if not groups and not private_chats:
         return jsonify({
-            "error": f"No users found in channel '{channel_name}'",
+            "error": f"No chats found with users from channel '{channel_name}'",
             "sent_to": 0
         }), 404
     
-    # Send message to users in the channel
+    # Send message to all chats
     success_count = 0
-    failed_users = []
+    failed_chats = []
     
-    for user in users:
-        user_id = user[0]
-        if send_message_to_user(user_id, message):
+    # Send to groups
+    for group_id, group_title, is_active in groups:
+        if send_message_to_chat(group_id, message):
             success_count += 1
         else:
-            failed_users.append({
-                "user_id": user_id,
-                "username": user[1],
-                "first_name": user[2]
+            failed_chats.append({
+                "chat_id": group_id,
+                "chat_type": "group",
+                "chat_title": group_title
             })
+    
+    # Send to private chats
+    for user_id, username, first_name, last_name in private_chats:
+        if send_message_to_chat(user_id, message):
+            success_count += 1
+        else:
+            failed_chats.append({
+                "chat_id": user_id,
+                "chat_type": "private",
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name
+            })
+    
+    total_chats = len(groups) + len(private_chats)
     
     response = {
         "message": f"Broadcast to channel '{channel_name}' completed",
         "channel": channel_name,
         "channel_id": channel_id,
-        "total_users": len(users),
+        "total_chats": total_chats,
+        "groups": len(groups),
+        "private_chats": len(private_chats),
         "sent_to": success_count,
-        "failed": len(failed_users)
+        "failed": len(failed_chats)
     }
     
-    if failed_users:
-        response["failed_users"] = failed_users
+    if failed_chats:
+        response["failed_chats"] = failed_chats
     
     return jsonify(response)
 
