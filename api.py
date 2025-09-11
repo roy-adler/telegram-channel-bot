@@ -10,7 +10,7 @@ from flask_cors import CORS
 # Environment variables are loaded by docker-compose
 
 TELEGRAM_BOT_API_KEY = os.environ.get("TELEGRAM_BOT_API_KEY", "change-me")
-TELEGRAM_BOT_API_PORT
+TELEGRAM_BOT_API_PORT = int(os.environ.get("TELEGRAM_BOT_API_PORT", 5000))
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
@@ -92,9 +92,9 @@ def send_message_to_user(user_id, message):
 
 def authenticate_api():
     """Check if the API request is authenticated"""
-    TELEGRAM_BOT_API_KEY = request.headers.get('X-API-Key') or request.args.get('TELEGRAM_BOT_API_KEY')
-    print(f"Debug: Received API key: {TELEGRAM_BOT_API_KEY}, Expected: {TELEGRAM_BOT_API_KEY}")
-    return TELEGRAM_BOT_API_KEY == TELEGRAM_BOT_API_KEY
+    api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
+    print(f"Debug: Received API key: {api_key}, Expected: {TELEGRAM_BOT_API_KEY}")
+    return api_key == TELEGRAM_BOT_API_KEY
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
