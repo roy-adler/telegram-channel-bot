@@ -96,6 +96,7 @@ python test_group_broadcast.py
 - `/register` - Register yourself in the current group
 - `/join <secret>` - Authenticate in a channel
 - `/leave` - Leave current channel
+- `/stop` - Remove yourself from group and deauthenticate
 
 ### API Testing
 

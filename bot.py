@@ -208,14 +208,19 @@ def add_user_to_group(group_id, user_id):
 
 def remove_user_from_group(group_id, user_id):
     """Remove a user from a group in the group_members table"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        DELETE FROM group_members 
-        WHERE group_id = ? AND user_id = ?
-    ''', (group_id, user_id))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect('data/bot_database.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            DELETE FROM group_members 
+            WHERE group_id = ? AND user_id = ?
+        ''', (group_id, user_id))
+        conn.commit()
+        conn.close()
+        print(f"User {user_id} removed from group {group_id}")
+    except Exception as e:
+        print(f"Error in remove_user_from_group: {e}")
+        # Don't re-raise to prevent crashes
 
 def create_channel(channel_name, channel_secret, description, created_by):
     """Create a new channel"""
@@ -417,26 +422,88 @@ async def join_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def leave_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle channel leave command"""
-    user = update.effective_user
-    add_user_to_db(user.id, user.username, user.first_name, user.last_name)
-    
-    is_authenticated, channel_id = get_user_auth_status(user.id)
-    if not is_authenticated:
-        await update.message.reply_text("❌ You are not currently in any channel.")
-        return
-    
-    # Remove user from channel
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE users 
-        SET is_authenticated = FALSE, channel_id = NULL
-        WHERE user_id = ?
-    ''', (user.id,))
-    conn.commit()
-    conn.close()
-    
-    await update.message.reply_text("✅ You have left the channel. Use /join <channel_secret> to join another channel.")
+    try:
+        user = update.effective_user
+        if not user:
+            await update.message.reply_text("❌ Unable to identify user.")
+            return
+            
+        add_user_to_db(user.id, user.username, user.first_name, user.last_name)
+        
+        is_authenticated, channel_id = get_user_auth_status(user.id)
+        if not is_authenticated:
+            await update.message.reply_text("❌ You are not currently in any channel.")
+            return
+        
+        # Remove user from channel
+        conn = sqlite3.connect('data/bot_database.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            UPDATE users 
+            SET is_authenticated = FALSE, channel_id = NULL
+            WHERE user_id = ?
+        ''', (user.id,))
+        conn.commit()
+        conn.close()
+        
+        await update.message.reply_text("✅ You have left the channel. Use /join <channel_secret> to join another channel.")
+    except Exception as e:
+        print(f"Error in leave_command: {e}")
+        await update.message.reply_text("❌ An error occurred. Please try again.")
+
+async def stop_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Handle stop command - remove user from group and deauthenticate"""
+    try:
+        user = update.effective_user
+        if not user:
+            await update.message.reply_text("❌ Unable to identify user.")
+            return
+            
+        add_user_to_db(user.id, user.username, user.first_name, user.last_name)
+        
+        # Check if user is in a group
+        if update.effective_chat.type in ['group', 'supergroup']:
+            # Remove user from the group
+            remove_user_from_group(update.effective_chat.id, user.id)
+            print(f"User {user.id} removed from group {update.effective_chat.id}")
+            
+            # Also deauthenticate the user
+            conn = sqlite3.connect('data/bot_database.db')
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE users 
+                SET is_authenticated = FALSE, channel_id = NULL
+                WHERE user_id = ?
+            ''', (user.id,))
+            conn.commit()
+            conn.close()
+            
+            await update.message.reply_text(
+                f"✅ {user.first_name}, you have been removed from this group and deauthenticated.\n"
+                f"You will no longer receive broadcasts here.\n"
+                f"Use /join <channel_secret> to rejoin if needed."
+            )
+        else:
+            # If not in a group, just deauthenticate
+            conn = sqlite3.connect('data/bot_database.db')
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE users 
+                SET is_authenticated = FALSE, channel_id = NULL
+                WHERE user_id = ?
+            ''', (user.id,))
+            conn.commit()
+            conn.close()
+            
+            await update.message.reply_text(
+                f"✅ {user.first_name}, you have been deauthenticated.\n"
+                f"You will no longer receive broadcasts.\n"
+                f"Use /join <channel_secret> to rejoin if needed."
+            )
+            
+    except Exception as e:
+        print(f"Error in stop_command: {e}")
+        await update.message.reply_text("❌ An error occurred. Please try again.")
 
 async def status_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Check authentication status"""
@@ -708,6 +775,7 @@ app = (
 app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("join", join_command))
 app.add_handler(CommandHandler("leave", leave_command))
+app.add_handler(CommandHandler("stop", stop_command))
 app.add_handler(CommandHandler("status", status_command))
 app.add_handler(CommandHandler("register", register_command))
 app.add_handler(CommandHandler("stats", admin_stats))
