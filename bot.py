@@ -14,7 +14,7 @@ from api import run_api, set_bot_app
 print("Environment variables loaded:")
 print(f"TELEGRAM_BOT_TOKEN: {os.environ.get('TELEGRAM_BOT_TOKEN', 'NOT SET')[:10]}...")
 print(f"ADMIN_USER_ID: {os.environ.get('ADMIN_USER_ID', 'NOT SET')}")
-print(f"API_KEY: {os.environ.get('API_KEY', 'NOT SET')}")
+print(f"TELEGRAM_BOT_API_KEY: {os.environ.get('TELEGRAM_BOT_API_KEY', 'NOT SET')}")
 
 try:
     TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -60,6 +60,18 @@ def init_database():
             group_title TEXT,
             is_active BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+    
+    # Create group_members table to track which users are in which groups
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id INTEGER,
+            user_id INTEGER,
+            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (group_id, user_id),
+            FOREIGN KEY (group_id) REFERENCES groups (group_id),
+            FOREIGN KEY (user_id) REFERENCES users (user_id)
         )
     ''')
     
@@ -152,22 +164,56 @@ def authenticate_user(user_id, channel_secret):
     return False, None, None
 
 def add_user_to_db(user_id, username, first_name, last_name):
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, username, first_name, last_name, last_seen)
-        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-    ''', (user_id, username, first_name, last_name))
-    conn.commit()
-    conn.close()
+    try:
+        conn = sqlite3.connect('data/bot_database.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO users (user_id, username, first_name, last_name, last_seen)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (user_id, username, first_name, last_name))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error in add_user_to_db: {e}")
+        # Don't re-raise to prevent crashes
 
 def add_group_to_db(group_id, group_title):
+    try:
+        conn = sqlite3.connect('data/bot_database.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO groups (group_id, group_title, is_active)
+            VALUES (?, ?, TRUE)
+        ''', (group_id, group_title))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error in add_group_to_db: {e}")
+        # Don't re-raise to prevent crashes
+
+def add_user_to_group(group_id, user_id):
+    """Add a user to a group in the group_members table"""
+    try:
+        conn = sqlite3.connect('data/bot_database.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR IGNORE INTO group_members (group_id, user_id)
+            VALUES (?, ?)
+        ''', (group_id, user_id))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error in add_user_to_group: {e}")
+        # Don't re-raise to prevent crashes
+
+def remove_user_from_group(group_id, user_id):
+    """Remove a user from a group in the group_members table"""
     conn = sqlite3.connect('data/bot_database.db')
     cursor = conn.cursor()
     cursor.execute('''
-        INSERT OR REPLACE INTO groups (group_id, group_title, is_active)
-        VALUES (?, ?, TRUE)
-    ''', (group_id, group_title))
+        DELETE FROM group_members 
+        WHERE group_id = ? AND user_id = ?
+    ''', (group_id, user_id))
     conn.commit()
     conn.close()
 
@@ -235,74 +281,88 @@ def get_users_in_channel(channel_id):
     return results
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    add_user_to_db(user.id, user.username, user.first_name, user.last_name)
-    
-    is_authenticated, channel_id = get_user_auth_status(user.id)
-    if is_authenticated:
-        channel_info = get_user_channel_info(user.id)
-        if channel_info and channel_info[2]:  # channel_name
-            await update.message.reply_text(
-                f"Hello {user.first_name}! You are authenticated to channel '{channel_info[2]}'. Welcome back!"
-            )
+    try:
+        user = update.effective_user
+        if not user:
+            await update.message.reply_text("❌ Unable to identify user.")
+            return
+            
+        add_user_to_db(user.id, user.username, user.first_name, user.last_name)
+        
+        is_authenticated, channel_id = get_user_auth_status(user.id)
+        if is_authenticated:
+            channel_info = get_user_channel_info(user.id)
+            if channel_info and channel_info[2]:  # channel_name
+                await update.message.reply_text(
+                    f"Hello {user.first_name}! You are authenticated to channel '{channel_info[2]}'. Welcome back!"
+                )
+            else:
+                await update.message.reply_text(f"Hello {user.first_name}! You are authenticated. Welcome back!")
         else:
-            await update.message.reply_text(f"Hello {user.first_name}! You are authenticated. Welcome back!")
-    else:
-        keyboard = [[InlineKeyboardButton("Join Channel", callback_data="auth_request")]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            f"Hello {user.first_name}! Please join a channel to use the bot's full features.",
-            reply_markup=reply_markup
-        )
+            keyboard = [[InlineKeyboardButton("Join Channel", callback_data="auth_request")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                f"Hello {user.first_name}! Please join a channel to use the bot's full features.",
+                reply_markup=reply_markup
+            )
+    except Exception as e:
+        print(f"Error in start command: {e}")
+        await update.message.reply_text("❌ An error occurred. Please try again.")
 
 async def handle_message(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    add_user_to_db(user.id, user.username, user.first_name, user.last_name)
-    
-    is_authenticated, channel_id = get_user_auth_status(user.id)
-    if is_authenticated:
-        channel_info = get_user_channel_info(user.id)
-        if channel_info and channel_info[2]:  # channel_name
-            await update.message.reply_text(
-                f"Hey {user.first_name}! You're in channel '{channel_info[2]}', so here's a special message for you! 🎉"
-            )
-        else:
-            await update.message.reply_text(f"Hey {user.first_name}! You're authenticated, so here's a special message for you! 🎉")
-    else:
-        # Non-authenticated user gets basic response
-        await update.message.reply_text("Hey! Please join a channel first using /start command.")
+    """Handle regular text messages - just log, don't respond"""
+    try:
+        user = update.effective_user
+        if not user:
+            return  # Skip if no user info
+        
+        # Just log the message, don't do any database operations
+        print(f"Message from {user.first_name} (@{user.username}): {update.message.text[:50]}...")
+        
+        # Don't respond to regular messages - only respond to commands
+        # This prevents the bot from replying to every message in groups
+    except Exception as e:
+        print(f"Error in handle_message: {e}")
+        # Don't re-raise the exception to prevent bot crashes
 
 async def handle_new_member(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle when new members are added to a group"""
-    for member in update.message.new_chat_members:
-        if member.id == ctx.bot.id:
-            # Bot was added to a group
-            group_title = update.effective_chat.title or "Unknown Group"
-            add_group_to_db(update.effective_chat.id, group_title)
-            await update.message.reply_text(
-                f"Hello everyone! I'm your new bot assistant. "
-                f"Please add me to your contacts and use /start to join a channel before using my features! 🤖"
-            )
-        else:
-            # New human member added
-            add_user_to_db(member.id, member.username, member.first_name, member.last_name)
-            is_authenticated, channel_id = get_user_auth_status(member.id)
-            if is_authenticated:
-                channel_info = get_user_channel_info(member.id)
-                if channel_info and channel_info[2]:  # channel_name
-                    await update.message.reply_text(
-                        f"Welcome {member.first_name}! I see you're already in channel '{channel_info[2]}'. "
-                        f"Feel free to ask me anything! 😊"
-                    )
+    try:
+        for member in update.message.new_chat_members:
+            if member.id == ctx.bot.id:
+                # Bot was added to a group
+                group_title = update.effective_chat.title or "Unknown Group"
+                add_group_to_db(update.effective_chat.id, group_title)
+                await update.message.reply_text(
+                    f"Hello everyone! I'm your new bot assistant. "
+                    f"Please add me to your contacts and use /start to join a channel before using my features! 🤖"
+                )
+            else:
+                # New human member added
+                add_user_to_db(member.id, member.username, member.first_name, member.last_name)
+                # Add user to the group
+                add_user_to_group(update.effective_chat.id, member.id)
+                
+                is_authenticated, channel_id = get_user_auth_status(member.id)
+                if is_authenticated:
+                    channel_info = get_user_channel_info(member.id)
+                    if channel_info and channel_info[2]:  # channel_name
+                        await update.message.reply_text(
+                            f"Welcome {member.first_name}! I see you're already in channel '{channel_info[2]}'. "
+                            f"Feel free to ask me anything! 😊"
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"Welcome {member.first_name}! I see you're already authenticated. "
+                            f"Feel free to ask me anything! 😊"
+                        )
                 else:
                     await update.message.reply_text(
-                        f"Welcome {member.first_name}! I see you're already authenticated. "
-                        f"Feel free to ask me anything! 😊"
+                        f"Welcome {member.first_name}! Please start a private chat with me and use /start to join a channel! 🔐"
                     )
-            else:
-                await update.message.reply_text(
-                    f"Welcome {member.first_name}! Please start a private chat with me and use /start to join a channel! 🔐"
-                )
+    except Exception as e:
+        print(f"Error in handle_new_member: {e}")
+        # Don't re-raise the exception to prevent bot crashes
 
 async def handle_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle inline keyboard callbacks"""
@@ -318,23 +378,42 @@ async def handle_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def join_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle channel join command"""
-    user = update.effective_user
-    add_user_to_db(user.id, user.username, user.first_name, user.last_name)
-    
-    if len(ctx.args) == 0:
-        await update.message.reply_text("Please provide a channel secret. Usage: /join <channel_secret>")
-        return
-    
-    channel_secret = ctx.args[0]
-    success, channel_name, description = authenticate_user(user.id, channel_secret)
-    
-    if success:
-        message = f"✅ Successfully joined channel '{channel_name}'!"
-        if description:
-            message += f"\n\nChannel description: {description}"
-        await update.message.reply_text(message)
-    else:
-        await update.message.reply_text("❌ Invalid channel secret. Please check with your administrator.")
+    try:
+        user = update.effective_user
+        if not user:
+            await update.message.reply_text("❌ Unable to identify user.")
+            return
+            
+        add_user_to_db(user.id, user.username, user.first_name, user.last_name)
+        
+        # Always ensure the user is tracked in the current chat (group or private)
+        if update.effective_chat.type in ['group', 'supergroup']:
+            add_group_to_db(update.effective_chat.id, update.effective_chat.title or "Unknown Group")
+            add_user_to_group(update.effective_chat.id, user.id)
+            print(f"User {user.id} joined group {update.effective_chat.id}")
+        
+        if len(ctx.args) == 0:
+            await update.message.reply_text("Please provide a channel secret. Usage: /join <channel_secret>")
+            return
+        
+        channel_secret = ctx.args[0]
+        success, channel_name, description = authenticate_user(user.id, channel_secret)
+        
+        if success:
+            message = f"✅ Successfully joined channel '{channel_name}'!"
+            if description:
+                message += f"\n\nChannel description: {description}"
+            
+            # Add helpful message for group users
+            if update.effective_chat.type in ['group', 'supergroup']:
+                message += f"\n\nYou can now receive broadcasts in this group!"
+            
+            await update.message.reply_text(message)
+        else:
+            await update.message.reply_text("❌ Invalid channel secret. Please check with your administrator.")
+    except Exception as e:
+        print(f"Error in join_command: {e}")
+        await update.message.reply_text("❌ An error occurred. Please try again.")
 
 async def leave_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle channel leave command"""
@@ -361,18 +440,54 @@ async def leave_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 
 async def status_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Check authentication status"""
-    user = update.effective_user
-    add_user_to_db(user.id, user.username, user.first_name, user.last_name)
-    
-    is_authenticated, channel_id = get_user_auth_status(user.id)
-    if is_authenticated:
-        channel_info = get_user_channel_info(user.id)
-        if channel_info and channel_info[2]:  # channel_name
-            await update.message.reply_text(f"✅ You are in channel '{channel_info[2]}'")
+    try:
+        user = update.effective_user
+        if not user:
+            await update.message.reply_text("❌ Unable to identify user.")
+            return
+            
+        add_user_to_db(user.id, user.username, user.first_name, user.last_name)
+        
+        # If this is a group message, ensure the user is tracked in the group
+        if update.effective_chat.type in ['group', 'supergroup']:
+            add_group_to_db(update.effective_chat.id, update.effective_chat.title or "Unknown Group")
+            add_user_to_group(update.effective_chat.id, user.id)
+        
+        is_authenticated, channel_id = get_user_auth_status(user.id)
+        if is_authenticated:
+            channel_info = get_user_channel_info(user.id)
+            if channel_info and channel_info[2]:  # channel_name
+                await update.message.reply_text(f"✅ You are in channel '{channel_info[2]}'")
+            else:
+                await update.message.reply_text("✅ You are authenticated!")
         else:
-            await update.message.reply_text("✅ You are authenticated!")
-    else:
-        await update.message.reply_text("❌ You are not in any channel. Use /join <channel_secret> to join a channel.")
+            await update.message.reply_text("❌ You are not in any channel. Use /join <channel_secret> to join a channel.")
+    except Exception as e:
+        print(f"Error in status_command: {e}")
+        await update.message.reply_text("❌ An error occurred. Please try again.")
+
+async def register_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Register user in current group for broadcasts"""
+    try:
+        user = update.effective_user
+        if not user:
+            await update.message.reply_text("❌ Unable to identify user.")
+            return
+            
+        add_user_to_db(user.id, user.username, user.first_name, user.last_name)
+        
+        if update.effective_chat.type in ['group', 'supergroup']:
+            add_group_to_db(update.effective_chat.id, update.effective_chat.title or "Unknown Group")
+            add_user_to_group(update.effective_chat.id, user.id)
+            await update.message.reply_text(
+                f"✅ {user.first_name}, you are now registered in this group!\n"
+                f"Use /join <channel_secret> to authenticate and receive broadcasts."
+            )
+        else:
+            await update.message.reply_text("❌ This command only works in groups.")
+    except Exception as e:
+        print(f"Error in register_command: {e}")
+        await update.message.reply_text("❌ An error occurred. Please try again.")
 
 async def admin_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Admin command to view bot statistics"""
@@ -520,6 +635,69 @@ async def admin_channel_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(response)
 
+async def admin_debug_groups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Admin command to debug group and user tracking"""
+    user = update.effective_user
+    if str(user.id) != ADMIN_USER_ID:
+        await update.message.reply_text("❌ Access denied. Admin only.")
+        return
+    
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    
+    # Get all groups
+    cursor.execute('SELECT group_id, group_title, is_active FROM groups ORDER BY created_at DESC')
+    groups = cursor.fetchall()
+    
+    # Get all group members
+    cursor.execute('''
+        SELECT gm.group_id, g.group_title, gm.user_id, u.username, u.first_name, u.is_authenticated
+        FROM group_members gm
+        JOIN groups g ON gm.group_id = g.group_id
+        JOIN users u ON gm.user_id = u.user_id
+        ORDER BY gm.group_id, u.first_name
+    ''')
+    group_members = cursor.fetchall()
+    
+    # Get authenticated users
+    cursor.execute('''
+        SELECT user_id, username, first_name, last_name, is_authenticated, channel_id
+        FROM users 
+        WHERE is_authenticated = TRUE
+        ORDER BY first_name
+    ''')
+    auth_users = cursor.fetchall()
+    
+    conn.close()
+    
+    response = "🔍 **Debug Information**\n\n"
+    
+    # Groups section
+    response += f"📊 **Groups ({len(groups)}):**\n"
+    for group_id, group_title, is_active in groups:
+        status = "🟢" if is_active else "🔴"
+        response += f"{status} {group_title} (ID: {group_id})\n"
+    
+    # Group members section
+    response += f"\n👥 **Group Members ({len(group_members)}):**\n"
+    current_group = None
+    for group_id, group_title, user_id, username, first_name, is_authenticated in group_members:
+        if current_group != group_id:
+            response += f"\n**{group_title} (ID: {group_id}):**\n"
+            current_group = group_id
+        
+        auth_status = "✅" if is_authenticated else "❌"
+        display_name = first_name or username or f"User {user_id}"
+        response += f"  {auth_status} {display_name} (@{username or 'N/A'})\n"
+    
+    # Authenticated users section
+    response += f"\n🔐 **Authenticated Users ({len(auth_users)}):**\n"
+    for user_id, username, first_name, last_name, is_authenticated, channel_id in auth_users:
+        display_name = f"{first_name} {last_name}".strip() or username or f"User {user_id}"
+        response += f"• {display_name} (@{username or 'N/A'}) - Channel: {channel_id}\n"
+    
+    await update.message.reply_text(response, parse_mode='Markdown')
+
 app = (
     Application.builder()
     .token(TOKEN)
@@ -531,24 +709,40 @@ app.add_handler(CommandHandler("start", start))
 app.add_handler(CommandHandler("join", join_command))
 app.add_handler(CommandHandler("leave", leave_command))
 app.add_handler(CommandHandler("status", status_command))
+app.add_handler(CommandHandler("register", register_command))
 app.add_handler(CommandHandler("stats", admin_stats))
 app.add_handler(CommandHandler("create_channel", admin_create_channel))
 app.add_handler(CommandHandler("list_channels", admin_list_channels))
 app.add_handler(CommandHandler("channel_users", admin_channel_users))
+app.add_handler(CommandHandler("debug_groups", admin_debug_groups))
+async def handle_left_member(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Handle when members leave a group"""
+    if update.message.left_chat_member:
+        member = update.message.left_chat_member
+        if member.id != ctx.bot.id:  # Don't remove the bot from group_members
+            remove_user_from_group(update.effective_chat.id, member.id)
+
 app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_new_member))
+app.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, handle_left_member))
+# Minimal message handler - just logs, doesn't respond
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 app.add_handler(CallbackQueryHandler(handle_callback_query))
 
 if __name__ == "__main__":
-    # Set the bot app for the API
-    set_bot_app(app)
-    
-    # Start API server in a separate thread
-    api_thread = threading.Thread(target=run_api, daemon=True)
-    api_thread.start()
-    print(f"API server started on port {os.environ.get('TELEGRAM_BOT_API_PORT', 5000)}")
-    
-    # Run the bot in polling mode
-    print("Starting bot in polling mode...")
-    app.run_polling()
+    try:
+        # Set the bot app for the API
+        set_bot_app(app)
+        
+        # Start API server in a separate thread
+        api_thread = threading.Thread(target=run_api, daemon=True)
+        api_thread.start()
+        print(f"API server started on port {os.environ.get('TELEGRAM_BOT_API_PORT', 5000)}")
+        
+        # Run the bot in polling mode
+        print("Starting bot in polling mode...")
+        print("Bot will now handle messages without crashing...")
+        app.run_polling()
+    except Exception as e:
+        print(f"Fatal error in main: {e}")
+        print("Bot crashed. Please check the logs and restart.")
 
