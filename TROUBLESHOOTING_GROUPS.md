@@ -8,10 +8,11 @@ If you don't see groups registered even after users have joined and authenticate
 1. Make sure the bot is added to the group as an administrator (or at least with permission to send messages)
 2. The bot should send a welcome message when added to the group
 
-### Step 2: Verify user authentication in the group
-1. In the group, have a user type: `/join welcome123` (or whatever the channel secret is)
-2. The bot should respond with a success message
-3. Check if the user is authenticated by having them type: `/status`
+### Step 2: Register users in the group
+1. In the group, have users type: `/register` to register themselves
+2. Then have them type: `/join welcome123` (or whatever the channel secret is)
+3. The bot should respond with a success message
+4. Check if the user is authenticated by having them type: `/status`
 
 ### Step 3: Use the debug command
 1. As an admin, send `/debug_groups` to the bot in a private chat
@@ -48,6 +49,13 @@ python test_group_broadcast.py
 
 ### Common Issues and Solutions
 
+#### Issue: Bot crashes when users send regular messages
+**Cause**: Bot was trying to reply to every message
+**Solution**: 
+1. The bot now ignores regular messages and only responds to commands
+2. Users can send any message without causing crashes
+3. Only `/start`, `/join`, `/status`, etc. commands will get responses
+
 #### Issue: Group not registered
 **Cause**: The bot wasn't properly added to the group
 **Solution**: 
@@ -82,9 +90,10 @@ python test_group_broadcast.py
 
 ### Testing Commands
 
-- `/debug_groups` - Show all groups, members, and authentication status
-- `/stats` - Show basic statistics
+- `/debug_groups` - Show all groups, members, and authentication status (admin only)
+- `/stats` - Show basic statistics (admin only)
 - `/status` - Check your own authentication status
+- `/register` - Register yourself in the current group
 - `/join <secret>` - Authenticate in a channel
 - `/leave` - Leave current channel
 
