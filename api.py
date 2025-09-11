@@ -9,9 +9,8 @@ from flask_cors import CORS
 
 # Environment variables are loaded by docker-compose
 
-API_KEY = os.environ.get("API_KEY", "change-me")
-API_PORT = int(os.environ.get("API_PORT", 5000))
-
+TELEGRAM_BOT_API_KEY = os.environ.get("TELEGRAM_BOT_API_KEY", "change-me")
+TELEGRAM_BOT_API_PORT
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
@@ -36,6 +35,46 @@ def get_authenticated_users():
     conn.close()
     return users
 
+def get_users_in_channel(channel_id):
+    """Get all users in a specific channel"""
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT user_id, username, first_name, last_name, last_seen
+        FROM users 
+        WHERE channel_id = ? AND is_authenticated = TRUE
+    ''', (channel_id,))
+    users = cursor.fetchall()
+    conn.close()
+    return users
+
+def get_channel_by_name(channel_name):
+    """Get channel information by name"""
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT channel_id, channel_name, description, is_active
+        FROM channels 
+        WHERE channel_name = ? AND is_active = TRUE
+    ''', (channel_name,))
+    result = cursor.fetchone()
+    conn.close()
+    return result
+
+def get_all_channels():
+    """Get all channels with user counts"""
+    conn = sqlite3.connect('data/bot_database.db')
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT c.channel_id, c.channel_name, c.description, c.is_active, c.created_at,
+               (SELECT COUNT(*) FROM users WHERE channel_id = c.channel_id AND is_authenticated = TRUE) as user_count
+        FROM channels c
+        ORDER BY c.created_at DESC
+    ''')
+    results = cursor.fetchall()
+    conn.close()
+    return results
+
 def send_message_to_user(user_id, message):
     """Send a message to a specific user"""
     if bot_app:
@@ -53,9 +92,9 @@ def send_message_to_user(user_id, message):
 
 def authenticate_api():
     """Check if the API request is authenticated"""
-    api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
-    print(f"Debug: Received API key: {api_key}, Expected: {API_KEY}")
-    return api_key == API_KEY
+    TELEGRAM_BOT_API_KEY = request.headers.get('X-API-Key') or request.args.get('TELEGRAM_BOT_API_KEY')
+    print(f"Debug: Received API key: {TELEGRAM_BOT_API_KEY}, Expected: {TELEGRAM_BOT_API_KEY}")
+    return TELEGRAM_BOT_API_KEY == TELEGRAM_BOT_API_KEY
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -140,41 +179,49 @@ def broadcast_message():
     
     return jsonify(response)
 
-@app.route('/api/broadcast-to-code', methods=['POST'])
-def broadcast_to_auth_code():
-    """Broadcast a message to users who authenticated with a specific code"""
+@app.route('/api/broadcast-to-channel', methods=['POST'])
+def broadcast_to_channel():
+    """Broadcast a message to users in a specific channel"""
     if not authenticate_api():
         return jsonify({"error": "Unauthorized"}), 401
     
     data = request.get_json()
     
-    if not data or 'message' not in data or 'auth_code' not in data:
-        return jsonify({"error": "Message and auth_code are required"}), 400
+    if not data or 'message' not in data or 'channel' not in data:
+        return jsonify({"error": "Message and channel are required"}), 400
     
     message = data['message']
-    auth_code = data['auth_code']
+    channel = data['channel']
     
-    if not message.strip() or not auth_code.strip():
-        return jsonify({"error": "Message and auth_code cannot be empty"}), 400
+    if not message.strip() or not channel.strip():
+        return jsonify({"error": "Message and channel cannot be empty"}), 400
     
-    # Get users with specific auth code
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_id, username, first_name, last_name, last_seen 
-        FROM users 
-        WHERE is_authenticated = TRUE AND auth_code = ?
-    ''', (auth_code,))
-    users = cursor.fetchall()
-    conn.close()
-    
-    if not users:
+    # Get channel information
+    channel_info = get_channel_by_name(channel)
+    if not channel_info:
         return jsonify({
-            "error": f"No users found with auth code: {auth_code}",
+            "error": f"Channel '{channel}' not found",
             "sent_to": 0
         }), 404
     
-    # Send message to users with specific auth code
+    channel_id, channel_name, description, is_active = channel_info
+    
+    if not is_active:
+        return jsonify({
+            "error": f"Channel '{channel_name}' is inactive",
+            "sent_to": 0
+        }), 400
+    
+    # Get users in the channel
+    users = get_users_in_channel(channel_id)
+    
+    if not users:
+        return jsonify({
+            "error": f"No users found in channel '{channel_name}'",
+            "sent_to": 0
+        }), 404
+    
+    # Send message to users in the channel
     success_count = 0
     failed_users = []
     
@@ -190,8 +237,9 @@ def broadcast_to_auth_code():
             })
     
     response = {
-        "message": f"Broadcast to auth code '{auth_code}' completed",
-        "auth_code": auth_code,
+        "message": f"Broadcast to channel '{channel_name}' completed",
+        "channel": channel_name,
+        "channel_id": channel_id,
         "total_users": len(users),
         "sent_to": success_count,
         "failed": len(failed_users)
@@ -201,6 +249,72 @@ def broadcast_to_auth_code():
         response["failed_users"] = failed_users
     
     return jsonify(response)
+
+@app.route('/api/channels', methods=['GET'])
+def get_channels():
+    """Get all channels"""
+    if not authenticate_api():
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    channels = get_all_channels()
+    channel_list = []
+    
+    for channel in channels:
+        channel_id, channel_name, description, is_active, created_at, user_count = channel
+        channel_list.append({
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "description": description,
+            "is_active": bool(is_active),
+            "user_count": user_count,
+            "created_at": created_at
+        })
+    
+    return jsonify({
+        "channels": channel_list,
+        "total": len(channel_list)
+    })
+
+@app.route('/api/channel/<channel_name>/users', methods=['GET'])
+def get_channel_users(channel_name):
+    """Get users in a specific channel"""
+    if not authenticate_api():
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    # Get channel information
+    channel_info = get_channel_by_name(channel_name)
+    if not channel_info:
+        return jsonify({"error": f"Channel '{channel_name}' not found"}), 404
+    
+    channel_id, channel_name, description, is_active = channel_info
+    
+    if not is_active:
+        return jsonify({"error": f"Channel '{channel_name}' is inactive"}), 400
+    
+    # Get users in the channel
+    users = get_users_in_channel(channel_id)
+    user_list = []
+    
+    for user in users:
+        user_id, username, first_name, last_name, last_seen = user
+        user_list.append({
+            "user_id": user_id,
+            "username": username,
+            "first_name": first_name,
+            "last_name": last_name,
+            "last_seen": last_seen
+        })
+    
+    return jsonify({
+        "channel": {
+            "channel_id": channel_id,
+            "channel_name": channel_name,
+            "description": description,
+            "is_active": bool(is_active)
+        },
+        "users": user_list,
+        "total": len(user_list)
+    })
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
@@ -221,14 +335,18 @@ def get_stats():
     cursor.execute('SELECT COUNT(*) FROM groups')
     total_groups = cursor.fetchone()[0]
     
-    # Get auth code distribution
+    cursor.execute('SELECT COUNT(*) FROM channels')
+    total_channels = cursor.fetchone()[0]
+    
+    # Get channel distribution
     cursor.execute('''
-        SELECT auth_code, COUNT(*) 
-        FROM users 
-        WHERE is_authenticated = TRUE AND auth_code IS NOT NULL
-        GROUP BY auth_code
+        SELECT c.channel_name, COUNT(u.user_id) as user_count
+        FROM channels c
+        LEFT JOIN users u ON c.channel_id = u.channel_id AND u.is_authenticated = TRUE
+        GROUP BY c.channel_id, c.channel_name
+        ORDER BY user_count DESC
     ''')
-    auth_codes = cursor.fetchall()
+    channel_distribution = cursor.fetchall()
     
     conn.close()
     
@@ -236,13 +354,14 @@ def get_stats():
         "total_users": total_users,
         "authenticated_users": auth_users,
         "total_groups": total_groups,
-        "auth_code_distribution": {code: count for code, count in auth_codes},
+        "total_channels": total_channels,
+        "channel_distribution": {name: count for name, count in channel_distribution},
         "timestamp": datetime.now().isoformat()
     })
 
 def run_api():
     """Run the API server in a separate thread"""
-    app.run(host='0.0.0.0', port=API_PORT, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=TELEGRAM_BOT_API_PORT, debug=False, use_reloader=False)
 
 if __name__ == '__main__':
     run_api()
