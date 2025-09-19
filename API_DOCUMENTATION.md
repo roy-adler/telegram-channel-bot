@@ -174,13 +174,21 @@ X-API-Key: your_api_key_here
 ```
 
 ### 6. Get Channel Users
-**GET** `/api/channel/<channel_name>/users`
+**POST** `/api/channel/<channel_name>/users`
 
-Get all users in a specific channel.
+Get all users in a specific channel. Requires channel secret for security.
 
 **Headers:**
 ```
 X-API-Key: your_api_key_here
+Content-Type: application/json
+```
+
+**Request Body:**
+```json
+{
+  "channel_secret": "secret123"
+}
 ```
 
 **Response:**
@@ -247,7 +255,7 @@ curl -X POST http://localhost:5000/api/broadcast \
 curl -X POST http://localhost:5000/api/broadcast-to-channel \
   -H "X-API-Key: your_api_key_here" \
   -H "Content-Type: application/json" \
-  -d '{"message": "Channel members only!", "channel": "announcements"}'
+  -d '{"message": "Channel members only!", "channel": "announcements", "channel_secret": "secret123"}'
 ```
 
 **Get all channels:**
@@ -258,8 +266,10 @@ curl -X GET http://localhost:5000/api/channels \
 
 **Get users in a channel:**
 ```bash
-curl -X GET http://localhost:5000/api/channel/general/users \
-  -H "X-API-Key: your_api_key_here"
+curl -X POST http://localhost:5000/api/channel/general/users \
+  -H "X-API-Key: your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{"channel_secret": "welcome123"}'
 ```
 
 **Get user list:**
@@ -292,7 +302,8 @@ response = requests.post(
     headers=headers,
     json={
         "message": "Channel message!",
-        "channel": "announcements"
+        "channel": "announcements",
+        "channel_secret": "secret123"
     }
 )
 print(response.json())
@@ -302,7 +313,11 @@ response = requests.get(f"{API_BASE}/channels", headers=headers)
 print(response.json())
 
 # Get users in a channel
-response = requests.get(f"{API_BASE}/channel/general/users", headers=headers)
+response = requests.post(
+    f"{API_BASE}/channel/general/users", 
+    headers=headers,
+    json={"channel_secret": "welcome123"}
+)
 print(response.json())
 ```
 
@@ -333,9 +348,15 @@ print(response.json())
 ## Security Notes
 
 1. **API Key**: Change the default API key in your `.env` file
-2. **HTTPS**: Use HTTPS in production
-3. **Rate Limiting**: Consider adding rate limiting for production use
-4. **Firewall**: Restrict API access to trusted IPs if needed
+2. **Channel Secrets**: Channel-specific operations require both channel name AND channel secret
+3. **HTTPS**: Use HTTPS in production
+4. **Rate Limiting**: Consider adding rate limiting for production use
+5. **Firewall**: Restrict API access to trusted IPs if needed
+
+### Channel Security
+- Broadcasting to channels requires knowing both the channel name and secret
+- Getting channel user lists requires the channel secret
+- This prevents unauthorized access even if someone knows channel names
 
 ## Configuration
 

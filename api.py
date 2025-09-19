@@ -175,28 +175,37 @@ def broadcast_to_channel():
     
     data = request.get_json()
     
-    if not data or 'message' not in data or 'channel' not in data:
-        return jsonify({"error": "Message and channel are required"}), 400
+    if not data or 'message' not in data or 'channel' not in data or 'channel_secret' not in data:
+        return jsonify({"error": "Message, channel, and channel_secret are required"}), 400
     
     message = data['message']
     channel = data['channel']
+    channel_secret = data['channel_secret']
     
-    if not message.strip() or not channel.strip():
-        return jsonify({"error": "Message and channel cannot be empty"}), 400
+    if not message.strip() or not channel.strip() or not channel_secret.strip():
+        return jsonify({"error": "Message, channel, and channel_secret cannot be empty"}), 400
     
-    # Get channel information
-    channel_info = get_channel_by_name(channel)
+    # Get channel information by secret (for security)
+    from db import get_channel_by_secret
+    channel_info = get_channel_by_secret(channel_secret)
     if not channel_info:
         return jsonify({
-            "error": f"Channel '{channel}' not found",
+            "error": "Invalid channel secret",
             "sent_to": 0
-        }), 404
+        }), 401
     
-    channel_id, channel_name, description, is_active = channel_info
+    channel_id, channel_name_from_db, description, is_active = channel_info
+    
+    # Verify the provided channel name matches the secret
+    if channel_name_from_db != channel:
+        return jsonify({
+            "error": "Channel name does not match the provided secret",
+            "sent_to": 0
+        }), 401
     
     if not is_active:
         return jsonify({
-            "error": f"Channel '{channel_name}' is inactive",
+            "error": f"Channel '{channel_name_from_db}' is inactive",
             "sent_to": 0
         }), 400
     
@@ -205,7 +214,7 @@ def broadcast_to_channel():
     
     if not groups and not private_chats:
         return jsonify({
-            "error": f"No chats found with users from channel '{channel_name}'",
+            "error": f"No chats found with users from channel '{channel_name_from_db}'",
             "sent_to": 0
         }), 404
     
@@ -240,8 +249,8 @@ def broadcast_to_channel():
     total_chats = len(groups) + len(private_chats)
     
     response = {
-        "message": f"Broadcast to channel '{channel_name}' completed",
-        "channel": channel_name,
+        "message": f"Broadcast to channel '{channel_name_from_db}' completed",
+        "channel": channel_name_from_db,
         "channel_id": channel_id,
         "total_chats": total_chats,
         "groups": len(groups),
@@ -280,21 +289,34 @@ def get_channels():
         "total": len(channel_list)
     })
 
-@app.route('/api/channel/<channel_name>/users', methods=['GET'])
+@app.route('/api/channel/<channel_name>/users', methods=['POST'])
 def get_channel_users(channel_name):
-    """Get users in a specific channel"""
+    """Get users in a specific channel - requires channel secret for security"""
     if not authenticate_api():
         return jsonify({"error": "Unauthorized"}), 401
     
-    # Get channel information
-    channel_info = get_channel_by_name(channel_name)
-    if not channel_info:
-        return jsonify({"error": f"Channel '{channel_name}' not found"}), 404
+    data = request.get_json()
+    if not data or 'channel_secret' not in data:
+        return jsonify({"error": "channel_secret is required"}), 400
     
-    channel_id, channel_name, description, is_active = channel_info
+    channel_secret = data['channel_secret']
+    if not channel_secret.strip():
+        return jsonify({"error": "channel_secret cannot be empty"}), 400
+    
+    # Get channel information by secret (for security)
+    from db import get_channel_by_secret
+    channel_info = get_channel_by_secret(channel_secret)
+    if not channel_info:
+        return jsonify({"error": "Invalid channel secret"}), 401
+    
+    channel_id, channel_name_from_db, description, is_active = channel_info
+    
+    # Verify the provided channel name matches the secret
+    if channel_name_from_db != channel_name:
+        return jsonify({"error": "Channel name does not match the provided secret"}), 401
     
     if not is_active:
-        return jsonify({"error": f"Channel '{channel_name}' is inactive"}), 400
+        return jsonify({"error": f"Channel '{channel_name_from_db}' is inactive"}), 400
     
     # Get users in the channel
     users = get_users_in_channel(channel_id)
@@ -313,7 +335,7 @@ def get_channel_users(channel_name):
     return jsonify({
         "channel": {
             "channel_id": channel_id,
-            "channel_name": channel_name,
+            "channel_name": channel_name_from_db,
             "description": description,
             "is_active": bool(is_active)
         },

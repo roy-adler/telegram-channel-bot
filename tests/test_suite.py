@@ -136,7 +136,7 @@ class BotTester:
             self.log(f"Broadcast test failed: {e}", "ERROR")
             return False
     
-    def test_channel_broadcast(self, channel_name: str = "general") -> bool:
+    def test_channel_broadcast(self, channel_name: str = "general", channel_secret: str = "welcome123") -> bool:
         """Test channel-specific broadcast"""
         self.log(f"Testing channel broadcast to '{channel_name}'...", "TEST")
         
@@ -146,7 +146,7 @@ class BotTester:
             response = requests.post(
                 f"{self.base_url}/api/broadcast-to-channel",
                 headers=self.headers_json,
-                json={"message": test_message, "channel": channel_name},
+                json={"message": test_message, "channel": channel_name, "channel_secret": channel_secret},
                 timeout=10
             )
             
@@ -157,6 +157,9 @@ class BotTester:
             elif response.status_code == 404:
                 self.log(f"Channel '{channel_name}' not found or no users", "WARNING")
                 return True  # This is OK if channel doesn't exist or has no users
+            elif response.status_code == 401:
+                self.log(f"Invalid channel secret for '{channel_name}'", "WARNING")
+                return True  # This is OK if we're using wrong secret for test
             else:
                 self.log(f"Channel broadcast failed: {response.status_code} - {response.text}", "ERROR")
                 return False

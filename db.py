@@ -259,10 +259,8 @@ def create_channel(channel_name: str, channel_secret: str, description: str = ""
         return True, "Channel created successfully"
     except sqlite3.IntegrityError as e:
         if "UNIQUE constraint failed" in str(e):
-            if "channel_name" in str(e):
-                return False, "Channel name already exists"
-            else:
-                return False, "Channel secret already exists"
+            # Don't reveal which field failed for security reasons
+            return False, "Channel already exists"
         return False, f"Database error: {e}"
     except Exception as e:
         return False, f"Error creating channel: {e}"
@@ -544,10 +542,8 @@ def create_channel_cli(channel_name: str, channel_secret: str, description: str 
             print(f"   Description: {description}")
         return True
     else:
-        if "Channel name already exists" in message:
-            print(f"❌ Channel name '{channel_name}' already exists")
-        elif "Channel secret already exists" in message:
-            print(f"❌ Channel secret '{channel_secret}' already exists")
+        if "Channel already exists" in message:
+            print(f"❌ Channel '{channel_name}' already exists (name or secret conflict)")
         else:
             print(f"❌ {message}")
         return False
