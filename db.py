@@ -160,31 +160,6 @@ def authenticate_user(user_id: int, channel_name: str, channel_secret: str) -> T
     conn.close()
     return False, None, None
 
-def authenticate_user_legacy(user_id: int, channel_secret: str) -> Tuple[bool, Optional[str], Optional[str]]:
-    """Legacy authentication with just channel secret (for backward compatibility)"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # Check if channel secret exists and is active
-    cursor.execute('''
-        SELECT channel_id, channel_name, description 
-        FROM channels 
-        WHERE channel_secret = ? AND is_active = TRUE
-    ''', (channel_secret,))
-    channel = cursor.fetchone()
-    
-    if channel:
-        channel_id, channel_name, description = channel
-        cursor.execute('''
-            UPDATE users 
-            SET is_authenticated = TRUE, channel_id = ?, last_seen = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        ''', (channel_id, user_id))
-        conn.commit()
-        conn.close()
-        return True, channel_name, description
-    conn.close()
-    return False, None, None
 
 def deauthenticate_user(user_id: int):
     """Remove user authentication and channel association"""
@@ -585,8 +560,6 @@ if __name__ == "__main__":
         print("  Reactivate channel: python db.py reactivate <channel_name>")
         print("  List channels:      python db.py list")
         print("")
-        print("Legacy create mode:   python db.py <channel_name> <channel_secret> [description]")
-        print("")
         print("Examples:")
         print("  python db.py create testchannel secret123 'Test channel'")
         print("  python db.py deactivate testchannel")
@@ -662,13 +635,6 @@ if __name__ == "__main__":
                 print(f"   Created: {created_at}\n")
     
     else:
-        # Legacy mode - assume first arg is channel name for backward compatibility
-        if len(sys.argv) < 3:
-            print("Usage: python db.py <channel_name> <channel_secret> [description]")
-            print("Example: python db.py testchannel secret123 'Test channel'")
-            sys.exit(1)
-        
-        channel_name = sys.argv[1]
-        channel_secret = sys.argv[2]
-        description = sys.argv[3] if len(sys.argv) > 3 else ""
-        create_channel_cli(channel_name, channel_secret, description)
+        print(f"❌ Unknown command: {command}")
+        print("Use 'python db.py' without arguments to see usage information.")
+        sys.exit(1)

@@ -120,7 +120,8 @@ Content-Type: application/json
 ```json
 {
   "message": "Hello channel members!",
-  "channel": "announcements"
+  "channel": "announcements",
+  "channel_secret": "secret123"
 }
 ```
 

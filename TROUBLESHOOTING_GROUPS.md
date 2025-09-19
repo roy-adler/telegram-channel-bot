@@ -10,7 +10,7 @@ If you don't see groups registered even after users have joined and authenticate
 
 ### Step 2: Register users in the group
 1. In the group, have users type: `/register` to register themselves
-2. Then have them type: `/join welcome123` (or whatever the channel secret is)
+2. Then have them type: `/join general welcome123` (or whatever the channel name and secret are)
 3. The bot should respond with a success message
 4. Check if the user is authenticated by having them type: `/status`
 
@@ -94,7 +94,7 @@ python test_group_broadcast.py
 - `/stats` - Show basic statistics (admin only)
 - `/status` - Check your own authentication status
 - `/register` - Register yourself in the current group
-- `/join <secret>` - Authenticate in a channel
+- `/join <channel_name> <channel_secret>` - Authenticate in a channel
 - `/leave` - Leave current channel
 - `/stop` - Remove yourself from group and deauthenticate
 

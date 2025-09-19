@@ -226,7 +226,7 @@ class BotTester:
         
         print("\n💡 NEXT STEPS:")
         print("• Add users to your bot with /start")
-        print("• Have users join channels with /join <secret>")
+        print("• Have users join channels with /join <channel_name> <channel_secret>")
         print("• Test broadcasts with authenticated users")
         print("• Use the API endpoints for integration")
     

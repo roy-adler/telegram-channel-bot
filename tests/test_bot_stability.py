@@ -134,7 +134,7 @@ def main():
     print("✅ Stability test completed!")
     print("\nBot Commands for Users:")
     print("- /start - Start the bot")
-    print("- /join <secret> - Join a channel")
+    print("- /join <channel_name> <channel_secret> - Join a channel")
     print("- /register - Register in current group")
     print("- /status - Check authentication status")
     print("- /leave - Leave current channel")

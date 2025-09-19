@@ -9,7 +9,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 from api import run_api, set_bot_app
 from db import (
     init_database, create_default_channel, add_user_to_db, get_user_auth_status,
-    get_user_channel_info, authenticate_user, authenticate_user_legacy, deauthenticate_user, add_group_to_db,
+    get_user_channel_info, authenticate_user, deauthenticate_user, add_group_to_db,
     add_user_to_group, remove_user_from_group, create_channel, get_channel_by_secret,
     get_all_channels, get_users_in_channel, get_bot_stats, get_debug_info
 )
@@ -167,27 +167,15 @@ async def join_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
             return
         elif len(ctx.args) == 1:
-            # Legacy support: try with just secret first, then show new format message
-            channel_secret = ctx.args[0]
-            success, channel_name_verified, description = authenticate_user_legacy(user.id, channel_secret)
-            if success:
-                await update.message.reply_text(
-                    f"✅ Successfully joined channel '{channel_name_verified}'!\n"
-                    f"ℹ️ Note: In the future, please use: /join {channel_name_verified} {channel_secret}\n"
-                    + (f"\nChannel description: {description}" if description else "")
-                    + ("\n\nYou can now receive broadcasts in this group!" if update.effective_chat.type in ['group', 'supergroup'] else "")
-                )
-                return
-            else:
-                await update.message.reply_text(
-                    "❌ Invalid channel secret.\n"
-                    "Please use the new format: /join <channel_name> <channel_secret>\n"
-                    "Example: /join general welcome123\n"
-                    "Ask your administrator for both the channel name and secret."
-                )
-                return
+            await update.message.reply_text(
+                "❌ Invalid format. Please provide both channel name and secret.\n"
+                "Usage: /join <channel_name> <channel_secret>\n"
+                "Example: /join general welcome123\n"
+                "Ask your administrator for both the channel name and secret."
+            )
+            return
         else:
-            # New format with both channel name and secret
+            # Format with both channel name and secret
             channel_name = ctx.args[0]
             channel_secret = ctx.args[1]
             success, channel_name_verified, description = authenticate_user(user.id, channel_name, channel_secret)
