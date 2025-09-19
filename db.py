@@ -134,8 +134,34 @@ def get_user_channel_info(user_id: int) -> Optional[Tuple]:
     conn.close()
     return result
 
-def authenticate_user(user_id: int, channel_secret: str) -> Tuple[bool, Optional[str], Optional[str]]:
-    """Authenticate a user with a channel secret"""
+def authenticate_user(user_id: int, channel_name: str, channel_secret: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    """Authenticate a user with both channel name and secret"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    # Check if both channel name and secret match and channel is active
+    cursor.execute('''
+        SELECT channel_id, channel_name, description 
+        FROM channels 
+        WHERE channel_name = ? AND channel_secret = ? AND is_active = TRUE
+    ''', (channel_name, channel_secret))
+    channel = cursor.fetchone()
+    
+    if channel:
+        channel_id, channel_name_db, description = channel
+        cursor.execute('''
+            UPDATE users 
+            SET is_authenticated = TRUE, channel_id = ?, last_seen = CURRENT_TIMESTAMP
+            WHERE user_id = ?
+        ''', (channel_id, user_id))
+        conn.commit()
+        conn.close()
+        return True, channel_name_db, description
+    conn.close()
+    return False, None, None
+
+def authenticate_user_legacy(user_id: int, channel_secret: str) -> Tuple[bool, Optional[str], Optional[str]]:
+    """Legacy authentication with just channel secret (for backward compatibility)"""
     conn = get_connection()
     cursor = conn.cursor()
     

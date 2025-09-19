@@ -15,8 +15,9 @@ All API endpoints require authentication using an API key. You can provide the A
 - **Query Parameter**: `?api_key=your_api_key_here`
 
 ## Channel System
-- Users join channels using channel secrets (e.g., `/join welcome123`)
+- Users join channels using both channel name and secret (e.g., `/join general welcome123`)
 - Each channel has a unique name and secret
+- Both name and secret are required for security
 - You can send messages to all users in a specific channel
 - Users can only be in one channel at a time
 

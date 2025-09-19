@@ -7,8 +7,8 @@ headers = {
 
 data = {
     "message": "Test secure message",
-    "channel": "a", 
-    "channel_secret": "b"
+    "channel": "general", 
+    "channel_secret": "welcome123"
 }
 
 response = requests.post(
