@@ -1,11 +1,16 @@
 import os
-import sqlite3
+# sqlite3 import no longer needed - using db.py
 import threading
 import time
 import asyncio
 from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from db import (
+    get_authenticated_users, get_users_in_channel, get_channel_by_name,
+    get_all_channels, get_chats_with_authenticated_users, get_chats_in_channel,
+    get_bot_stats
+)
 
 # Environment variables are loaded by docker-compose
 
@@ -22,58 +27,7 @@ def set_bot_app(app_instance):
     global bot_app
     bot_app = app_instance
 
-def get_authenticated_users():
-    """Get all authenticated users from database"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_id, username, first_name, last_name, last_seen 
-        FROM users 
-        WHERE is_authenticated = TRUE
-    ''')
-    users = cursor.fetchall()
-    conn.close()
-    return users
-
-def get_users_in_channel(channel_id):
-    """Get all users in a specific channel"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_id, username, first_name, last_name, last_seen
-        FROM users 
-        WHERE channel_id = ? AND is_authenticated = TRUE
-    ''', (channel_id,))
-    users = cursor.fetchall()
-    conn.close()
-    return users
-
-def get_channel_by_name(channel_name):
-    """Get channel information by name"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT channel_id, channel_name, description, is_active
-        FROM channels 
-        WHERE channel_name = ? AND is_active = TRUE
-    ''', (channel_name,))
-    result = cursor.fetchone()
-    conn.close()
-    return result
-
-def get_all_channels():
-    """Get all channels with user counts"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT c.channel_id, c.channel_name, c.description, c.is_active, c.created_at,
-               (SELECT COUNT(*) FROM users WHERE channel_id = c.channel_id AND is_authenticated = TRUE) as user_count
-        FROM channels c
-        ORDER BY c.created_at DESC
-    ''')
-    results = cursor.fetchall()
-    conn.close()
-    return results
+# All database functions are now imported from db.py
 
 def send_message_to_user(user_id, message):
     """Send a message to a specific user"""
@@ -105,59 +59,7 @@ def send_message_to_chat(chat_id, message):
             return False
     return False
 
-def get_chats_with_authenticated_users():
-    """Get all chats (groups and private chats) where at least one user is authenticated"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    
-    # Get all groups that have at least one authenticated user
-    cursor.execute('''
-        SELECT DISTINCT g.group_id, g.group_title, g.is_active
-        FROM groups g
-        INNER JOIN group_members gm ON g.group_id = gm.group_id
-        INNER JOIN users u ON gm.user_id = u.user_id
-        WHERE g.is_active = TRUE AND u.is_authenticated = TRUE
-    ''')
-    groups = cursor.fetchall()
-    
-    # Get all private chats (user_ids) that are authenticated
-    cursor.execute('''
-        SELECT DISTINCT user_id, username, first_name, last_name
-        FROM users 
-        WHERE is_authenticated = TRUE
-    ''')
-    private_chats = cursor.fetchall()
-    
-    conn.close()
-    
-    return groups, private_chats
-
-def get_chats_in_channel(channel_id):
-    """Get all chats (groups and private chats) where users from a specific channel are present"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    
-    # Get all groups that have at least one user from the specified channel
-    cursor.execute('''
-        SELECT DISTINCT g.group_id, g.group_title, g.is_active
-        FROM groups g
-        INNER JOIN group_members gm ON g.group_id = gm.group_id
-        INNER JOIN users u ON gm.user_id = u.user_id
-        WHERE g.is_active = TRUE AND u.channel_id = ? AND u.is_authenticated = TRUE
-    ''', (channel_id,))
-    groups = cursor.fetchall()
-    
-    # Get all private chats (user_ids) from the specified channel
-    cursor.execute('''
-        SELECT DISTINCT user_id, username, first_name, last_name
-        FROM users 
-        WHERE channel_id = ? AND is_authenticated = TRUE
-    ''', (channel_id,))
-    private_chats = cursor.fetchall()
-    
-    conn.close()
-    
-    return groups, private_chats
+# Chat retrieval functions are now imported from db.py
 
 def authenticate_api():
     """Check if the API request is authenticated"""
@@ -425,33 +327,12 @@ def get_stats():
     if not authenticate_api():
         return jsonify({"error": "Unauthorized"}), 401
     
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    
-    # Get user stats
-    cursor.execute('SELECT COUNT(*) FROM users')
-    total_users = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM users WHERE is_authenticated = TRUE')
-    auth_users = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM groups')
-    total_groups = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM channels')
-    total_channels = cursor.fetchone()[0]
-    
-    # Get channel distribution
-    cursor.execute('''
-        SELECT c.channel_name, COUNT(u.user_id) as user_count
-        FROM channels c
-        LEFT JOIN users u ON c.channel_id = u.channel_id AND u.is_authenticated = TRUE
-        GROUP BY c.channel_id, c.channel_name
-        ORDER BY user_count DESC
-    ''')
-    channel_distribution = cursor.fetchall()
-    
-    conn.close()
+    stats = get_bot_stats()
+    total_users = stats['total_users']
+    auth_users = stats['authenticated_users']
+    total_groups = stats['total_groups']
+    total_channels = stats['total_channels']
+    channel_distribution = stats['channel_distribution']
     
     return jsonify({
         "total_users": total_users,

@@ -7,6 +7,12 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from api import run_api, set_bot_app
+from db import (
+    init_database, create_default_channel, add_user_to_db, get_user_auth_status,
+    get_user_channel_info, authenticate_user, deauthenticate_user, add_group_to_db,
+    add_user_to_group, remove_user_from_group, create_channel, get_channel_by_secret,
+    get_all_channels, get_users_in_channel, get_bot_stats, get_debug_info
+)
 
 # Environment variables are loaded by docker-compose
 
@@ -31,259 +37,13 @@ except ValueError as e:
 
 ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID", "")  # Your Telegram user ID
 
-# Database setup
-def init_database():
-    # Create data directory if it doesn't exist
-    os.makedirs('data', exist_ok=True)
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    
-    # Create users table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            first_name TEXT,
-            last_name TEXT,
-            is_authenticated BOOLEAN DEFAULT FALSE,
-            channel_id INTEGER,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (channel_id) REFERENCES channels (channel_id)
-        )
-    ''')
-    
-    # Create groups table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS groups (
-            group_id INTEGER PRIMARY KEY,
-            group_title TEXT,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Create group_members table to track which users are in which groups
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS group_members (
-            group_id INTEGER,
-            user_id INTEGER,
-            joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (group_id, user_id),
-            FOREIGN KEY (group_id) REFERENCES groups (group_id),
-            FOREIGN KEY (user_id) REFERENCES users (user_id)
-        )
-    ''')
-    
-    # Create channels table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS channels (
-            channel_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_name TEXT NOT NULL UNIQUE,
-            channel_secret TEXT NOT NULL UNIQUE,
-            description TEXT,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            created_by INTEGER,
-            FOREIGN KEY (created_by) REFERENCES users (user_id)
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
-
-def create_default_channel():
-    """Create a default channel if none exists"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    
-    # Check if any channels exist
-    cursor.execute('SELECT COUNT(*) FROM channels')
-    channel_count = cursor.fetchone()[0]
-    
-    if channel_count == 0:
-        # Create a default channel
-        cursor.execute('''
-            INSERT INTO channels (channel_name, channel_secret, description, created_by)
-            VALUES (?, ?, ?, ?)
-        ''', ('general', 'welcome123', 'Default general channel for all users', 1))
-        conn.commit()
-        print("Created default channel 'general' with secret 'welcome123'")
-    
-    conn.close()
+# Database initialization is now handled by db.py
 
 # Initialize database
 init_database()
 create_default_channel()
 
-def get_user_auth_status(user_id):
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT is_authenticated, channel_id FROM users WHERE user_id = ?', (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result[0] if result else False, result[1] if result else None
-
-def get_user_channel_info(user_id):
-    """Get user's channel information"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT u.is_authenticated, u.channel_id, c.channel_name, c.description
-        FROM users u
-        LEFT JOIN channels c ON u.channel_id = c.channel_id
-        WHERE u.user_id = ?
-    ''', (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result
-
-def authenticate_user(user_id, channel_secret):
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    
-    # Check if channel secret exists and is active
-    cursor.execute('''
-        SELECT channel_id, channel_name, description 
-        FROM channels 
-        WHERE channel_secret = ? AND is_active = TRUE
-    ''', (channel_secret,))
-    channel = cursor.fetchone()
-    
-    if channel:
-        channel_id, channel_name, description = channel
-        cursor.execute('''
-            UPDATE users 
-            SET is_authenticated = TRUE, channel_id = ?, last_seen = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        ''', (channel_id, user_id))
-        conn.commit()
-        conn.close()
-        return True, channel_name, description
-    conn.close()
-    return False, None, None
-
-def add_user_to_db(user_id, username, first_name, last_name):
-    try:
-        conn = sqlite3.connect('data/bot_database.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO users (user_id, username, first_name, last_name, last_seen)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ''', (user_id, username, first_name, last_name))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Error in add_user_to_db: {e}")
-        # Don't re-raise to prevent crashes
-
-def add_group_to_db(group_id, group_title):
-    try:
-        conn = sqlite3.connect('data/bot_database.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR REPLACE INTO groups (group_id, group_title, is_active)
-            VALUES (?, ?, TRUE)
-        ''', (group_id, group_title))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Error in add_group_to_db: {e}")
-        # Don't re-raise to prevent crashes
-
-def add_user_to_group(group_id, user_id):
-    """Add a user to a group in the group_members table"""
-    try:
-        conn = sqlite3.connect('data/bot_database.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT OR IGNORE INTO group_members (group_id, user_id)
-            VALUES (?, ?)
-        ''', (group_id, user_id))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        print(f"Error in add_user_to_group: {e}")
-        # Don't re-raise to prevent crashes
-
-def remove_user_from_group(group_id, user_id):
-    """Remove a user from a group in the group_members table"""
-    try:
-        conn = sqlite3.connect('data/bot_database.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            DELETE FROM group_members 
-            WHERE group_id = ? AND user_id = ?
-        ''', (group_id, user_id))
-        conn.commit()
-        conn.close()
-        print(f"User {user_id} removed from group {group_id}")
-    except Exception as e:
-        print(f"Error in remove_user_from_group: {e}")
-        # Don't re-raise to prevent crashes
-
-def create_channel(channel_name, channel_secret, description, created_by):
-    """Create a new channel"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    try:
-        cursor.execute('''
-            INSERT INTO channels (channel_name, channel_secret, description, created_by)
-            VALUES (?, ?, ?, ?)
-        ''', (channel_name, channel_secret, description, created_by))
-        conn.commit()
-        return True, "Channel created successfully"
-    except sqlite3.IntegrityError as e:
-        if "UNIQUE constraint failed" in str(e):
-            if "channel_name" in str(e):
-                return False, "Channel name already exists"
-            else:
-                return False, "Channel secret already exists"
-        return False, f"Database error: {e}"
-    except Exception as e:
-        return False, f"Error creating channel: {e}"
-    finally:
-        conn.close()
-
-def get_channel_by_secret(channel_secret):
-    """Get channel information by secret"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT channel_id, channel_name, description, is_active
-        FROM channels 
-        WHERE channel_secret = ?
-    ''', (channel_secret,))
-    result = cursor.fetchone()
-    conn.close()
-    return result
-
-def get_all_channels():
-    """Get all channels"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT channel_id, channel_name, description, is_active, created_at,
-               (SELECT COUNT(*) FROM users WHERE channel_id = channels.channel_id AND is_authenticated = TRUE) as user_count
-        FROM channels 
-        ORDER BY created_at DESC
-    ''')
-    results = cursor.fetchall()
-    conn.close()
-    return results
-
-def get_users_in_channel(channel_id):
-    """Get all users in a specific channel"""
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_id, username, first_name, last_name, last_seen
-        FROM users 
-        WHERE channel_id = ? AND is_authenticated = TRUE
-    ''', (channel_id,))
-    results = cursor.fetchall()
-    conn.close()
-    return results
+# All database functions are now imported from db.py
 
 async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     try:
@@ -436,15 +196,7 @@ async def leave_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             return
         
         # Remove user from channel
-        conn = sqlite3.connect('data/bot_database.db')
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE users 
-            SET is_authenticated = FALSE, channel_id = NULL
-            WHERE user_id = ?
-        ''', (user.id,))
-        conn.commit()
-        conn.close()
+        deauthenticate_user(user.id)
         
         await update.message.reply_text("✅ You have left the channel. Use /join <channel_secret> to join another channel.")
     except Exception as e:
@@ -468,15 +220,7 @@ async def stop_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             print(f"User {user.id} removed from group {update.effective_chat.id}")
             
             # Also deauthenticate the user
-            conn = sqlite3.connect('data/bot_database.db')
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE users 
-                SET is_authenticated = FALSE, channel_id = NULL
-                WHERE user_id = ?
-            ''', (user.id,))
-            conn.commit()
-            conn.close()
+            deauthenticate_user(user.id)
             
             await update.message.reply_text(
                 f"✅ {user.first_name}, you have been removed from this group and deauthenticated.\n"
@@ -485,15 +229,7 @@ async def stop_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             )
         else:
             # If not in a group, just deauthenticate
-            conn = sqlite3.connect('data/bot_database.db')
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE users 
-                SET is_authenticated = FALSE, channel_id = NULL
-                WHERE user_id = ?
-            ''', (user.id,))
-            conn.commit()
-            conn.close()
+            deauthenticate_user(user.id)
             
             await update.message.reply_text(
                 f"✅ {user.first_name}, you have been deauthenticated.\n"
@@ -563,33 +299,12 @@ async def admin_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Access denied. Admin only.")
         return
     
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    
-    # Get user stats
-    cursor.execute('SELECT COUNT(*) FROM users')
-    total_users = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM users WHERE is_authenticated = TRUE')
-    auth_users = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM groups')
-    total_groups = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM channels')
-    total_channels = cursor.fetchone()[0]
-    
-    # Get channel distribution
-    cursor.execute('''
-        SELECT c.channel_name, COUNT(u.user_id) as user_count
-        FROM channels c
-        LEFT JOIN users u ON c.channel_id = u.channel_id AND u.is_authenticated = TRUE
-        GROUP BY c.channel_id, c.channel_name
-        ORDER BY user_count DESC
-    ''')
-    channel_stats = cursor.fetchall()
-    
-    conn.close()
+    stats = get_bot_stats()
+    total_users = stats['total_users']
+    auth_users = stats['authenticated_users']
+    total_groups = stats['total_groups']
+    total_channels = stats['total_channels']
+    channel_stats = stats['channel_distribution']
     
     stats_text = f"""
 📊 Bot Statistics:
@@ -676,12 +391,13 @@ async def admin_channel_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Channel ID must be a number.")
         return
     
-    # Get channel info
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT channel_name FROM channels WHERE channel_id = ?', (channel_id,))
-    channel = cursor.fetchone()
-    conn.close()
+    # Get channel info from all channels
+    all_channels = get_all_channels()
+    channel = None
+    for ch in all_channels:
+        if ch[0] == channel_id:  # channel_id is first element
+            channel = (ch[1],)  # channel_name is second element
+            break
     
     if not channel:
         await update.message.reply_text(f"❌ Channel with ID {channel_id} not found.")
@@ -709,33 +425,10 @@ async def admin_debug_groups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Access denied. Admin only.")
         return
     
-    conn = sqlite3.connect('data/bot_database.db')
-    cursor = conn.cursor()
-    
-    # Get all groups
-    cursor.execute('SELECT group_id, group_title, is_active FROM groups ORDER BY created_at DESC')
-    groups = cursor.fetchall()
-    
-    # Get all group members
-    cursor.execute('''
-        SELECT gm.group_id, g.group_title, gm.user_id, u.username, u.first_name, u.is_authenticated
-        FROM group_members gm
-        JOIN groups g ON gm.group_id = g.group_id
-        JOIN users u ON gm.user_id = u.user_id
-        ORDER BY gm.group_id, u.first_name
-    ''')
-    group_members = cursor.fetchall()
-    
-    # Get authenticated users
-    cursor.execute('''
-        SELECT user_id, username, first_name, last_name, is_authenticated, channel_id
-        FROM users 
-        WHERE is_authenticated = TRUE
-        ORDER BY first_name
-    ''')
-    auth_users = cursor.fetchall()
-    
-    conn.close()
+    debug_info = get_debug_info()
+    groups = debug_info['groups']
+    group_members = debug_info['group_members']
+    auth_users = debug_info['authenticated_users']
     
     response = "🔍 **Debug Information**\n\n"
     
