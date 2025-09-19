@@ -1,17 +1,25 @@
 # API Testing Guide
 
-## Quick Test Scripts
+## Comprehensive Test Suite
 
-I've created two test scripts for you to verify the channel-based API is working:
+The repository now includes a consolidated test suite for better organization:
 
-### Option 1: PowerShell Script (Recommended)
-```powershell
-powershell -ExecutionPolicy Bypass -File .\test_api.ps1
-```
+### Python Test Suite
+```bash
+# Full comprehensive test suite
+python tests/test_suite.py
 
-### Option 2: Batch File
-```cmd
-.\test_api.bat
+# Quick tests only
+python tests/test_suite.py --quick
+
+# Test specific URL/API key
+python tests/test_suite.py --url https://your-domain.com --key your_api_key
+
+# Basic API tests
+python tests/test_api.py
+
+# Bot stability tests
+python tests/test_bot_stability.py
 ```
 
 ## Manual Testing Commands
@@ -42,21 +50,43 @@ $headers = @{"X-API-Key" = "asdfghjkl"}
 Invoke-RestMethod -Uri "http://localhost:5000/api/stats" -Method GET -Headers $headers
 ```
 
-## For Your Production Server
+## Testing Different Environments
 
-Replace `localhost:5000` with `https://telegram-bot-api.royadler.de` in all the above commands.
+### Local Development
+```bash
+python tests/test_suite.py
+```
+
+### Production Server
+```bash
+python tests/test_suite.py --url https://your-domain.com --key your_production_key
+```
 
 ## Troubleshooting
 
-- **PowerShell Execution Policy Error**: Use `powershell -ExecutionPolicy Bypass -File .\test_api.ps1`
 - **Container Not Running**: Run `docker-compose up -d` first
 - **API Key Issues**: Make sure you're using the correct API key from your environment
+- **Import Errors**: Make sure you're running from the project root directory
+- **Connection Errors**: Verify the bot is running and accessible at the specified URL
 
-## What the Tests Show
+## Test Suite Features
 
-✅ **Health Check**: Shows the API is running and healthy  
-✅ **Channels**: Lists available channels (should show "general" channel)  
-✅ **Broadcast**: Sends a test message to the "general" channel  
-✅ **Stats**: Shows user counts and channel distribution  
+The new `test_suite.py` provides comprehensive testing:
 
-The channel-based system is working perfectly! 🚀
+✅ **Connectivity**: Tests basic API connection  
+✅ **Authentication**: Verifies API key security  
+✅ **Endpoints**: Tests all major API endpoints  
+✅ **Broadcasting**: Tests message broadcasting functionality  
+✅ **Channel Broadcasting**: Tests channel-specific messages  
+✅ **Stability**: Tests API reliability with multiple requests  
+✅ **Statistics**: Shows comprehensive bot statistics  
+
+### Available Test Files
+
+All test files are now organized in the `tests/` directory:
+
+- `tests/test_suite.py` - **Main comprehensive test suite** 🌟
+- `tests/test_api.py` - Basic API functionality tests
+- `tests/test_bot_stability.py` - Bot stability and reliability tests
+
+The consolidated system is much cleaner and more maintainable! 🚀
