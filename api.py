@@ -175,11 +175,11 @@ def broadcast_to_channel():
     
     data = request.get_json()
     
-    if not data or 'message' not in data or 'channel' not in data or 'channel_secret' not in data:
+    if not data or 'message' not in data or 'channel_name' not in data or 'channel_secret' not in data:
         return jsonify({"error": "Message, channel, and channel_secret are required"}), 400
     
     message = data['message']
-    channel = data['channel']
+    channel = data['channel_name']
     channel_secret = data['channel_secret']
     
     if not message.strip() or not channel.strip() or not channel_secret.strip():
