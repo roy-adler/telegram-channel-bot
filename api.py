@@ -29,21 +29,6 @@ def set_bot_app(app_instance):
 
 # All database functions are now imported from db.py
 
-def send_message_to_user(user_id, message):
-    """Send a message to a specific user"""
-    if bot_app:
-        try:
-            # Use asyncio to run the async function
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(bot_app.bot.send_message(chat_id=user_id, text=message))
-            loop.close()
-            return True
-        except Exception as e:
-            print(f"Error sending message to user {user_id}: {e}")
-            return False
-    return False
-
 def send_message_to_chat(chat_id, message):
     """Send a message to a specific chat (group or private)"""
     if bot_app:
