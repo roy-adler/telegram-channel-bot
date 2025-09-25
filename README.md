@@ -1,6 +1,6 @@
-# Telegram Bot Docker Setup
+# Telegram Channel Bot Docker Setup
 
-This project contains a Telegram bot that runs using Docker Compose.
+This project contains a Telegram channel bot that runs using Docker Compose.
 
 ## Setup Instructions
 
@@ -32,7 +32,7 @@ This project contains a Telegram bot that runs using Docker Compose.
    docker-compose up -d --build
 
    # View logs
-   docker-compose logs -f telegram-bot
+   docker-compose logs -f telegram-channel-bot
 
    # Stop the bot
    docker-compose down

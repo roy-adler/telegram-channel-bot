@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive test suite for the Telegram Bot API
+Comprehensive test suite for the Telegram Channel Bot API
 Consolidates functionality from multiple test files into one comprehensive suite.
 """
 
@@ -274,7 +274,7 @@ def main():
     """Main function with command line argument support"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='Comprehensive Telegram Bot Test Suite')
+    parser = argparse.ArgumentParser(description='Comprehensive Telegram Channel Bot Test Suite')
     parser.add_argument('--url', default=DEFAULT_API_BASE_URL, help='API base URL')
     parser.add_argument('--key', default=DEFAULT_API_KEY, help='API key')
     parser.add_argument('--quick', action='store_true', help='Run quick tests only')

@@ -1,5 +1,5 @@
 """
-Test suite for the Telegram Bot API
+Test suite for the Telegram Channel Bot API
 
 This package contains comprehensive tests for:
 - API functionality

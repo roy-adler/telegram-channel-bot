@@ -1,4 +1,4 @@
-# Telegram Bot REST API Documentation
+# Telegram Channel Bot REST API Documentation
 
 ## Overview
 This REST API allows you to send messages to chats (groups and private chats) where authenticated users are present. The bot uses a channel-based authentication system where users join channels using channel secrets, and you can send messages to all chats where users from specific channels are present.

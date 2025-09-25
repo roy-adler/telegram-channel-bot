@@ -1,6 +1,6 @@
 # Test Suite
 
-This directory contains all Python test files for the Telegram Bot API.
+This directory contains all Python test files for the Telegram Channel Bot API.
 
 ## Test Files
 
