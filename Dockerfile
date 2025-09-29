@@ -22,9 +22,5 @@ COPY --from=deps /usr/local/bin /usr/local/bin
 # app code LAST → tiny rebuild on change
 COPY . .
 
-# Create a directory for the database and set permissions
-RUN mkdir -p /app/data && chown -R 1000:1000 /app/data && chmod -R 755 /app/data
-
 EXPOSE 5000
-USER 1000:1000
 CMD ["python", "bot.py"]
