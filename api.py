@@ -8,8 +8,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 from db import (
     get_authenticated_users, get_users_in_channel, get_channel_by_name,
-    get_all_channels, get_chats_with_authenticated_users, get_chats_in_channel,
-    get_bot_stats
+    get_all_channels, get_chats_in_channel, get_bot_stats
 )
 
 # Environment variables are loaded by docker-compose
@@ -84,73 +83,6 @@ def get_users():
         "total": len(user_list)
     })
 
-@app.route('/api/broadcast', methods=['POST'])
-def broadcast_message():
-    """Broadcast a message to all chats where authenticated users are present"""
-    if not authenticate_api():
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    data = request.get_json()
-    
-    if not data or 'message' not in data:
-        return jsonify({"error": "Message is required"}), 400
-    
-    message = data['message']
-    if not message.strip():
-        return jsonify({"error": "Message cannot be empty"}), 400
-    
-    # Get all chats with authenticated users
-    groups, private_chats = get_chats_with_authenticated_users()
-    
-    if not groups and not private_chats:
-        return jsonify({
-            "error": "No chats with authenticated users found",
-            "sent_to": 0
-        }), 404
-    
-    # Send message to all chats
-    success_count = 0
-    failed_chats = []
-    
-    # Send to groups
-    for group_id, group_title, is_active in groups:
-        if send_message_to_chat(group_id, message):
-            success_count += 1
-        else:
-            failed_chats.append({
-                "chat_id": group_id,
-                "chat_type": "group",
-                "chat_title": group_title
-            })
-    
-    # Send to private chats
-    for user_id, username, first_name, last_name in private_chats:
-        if send_message_to_chat(user_id, message):
-            success_count += 1
-        else:
-            failed_chats.append({
-                "chat_id": user_id,
-                "chat_type": "private",
-                "username": username,
-                "first_name": first_name,
-                "last_name": last_name
-            })
-    
-    total_chats = len(groups) + len(private_chats)
-    
-    response = {
-        "message": "Broadcast completed",
-        "total_chats": total_chats,
-        "groups": len(groups),
-        "private_chats": len(private_chats),
-        "sent_to": success_count,
-        "failed": len(failed_chats)
-    }
-    
-    if failed_chats:
-        response["failed_chats"] = failed_chats
-    
-    return jsonify(response)
 
 @app.route('/api/broadcast-to-channel', methods=['POST'])
 def broadcast_to_channel():
@@ -351,8 +283,36 @@ def get_stats():
     })
 
 def run_api():
-    """Run the API server in a separate thread"""
-    app.run(host='0.0.0.0', port=TELEGRAM_BOT_API_PORT, debug=False, use_reloader=False)
+    """Run the API server in a separate thread using Gunicorn for production"""
+    import subprocess
+    import sys
+    
+    # Use Gunicorn for production WSGI server
+    cmd = [
+        'gunicorn',
+        '--bind', f'0.0.0.0:{TELEGRAM_BOT_API_PORT}',
+        '--workers', '2',
+        '--worker-class', 'sync',
+        '--worker-connections', '1000',
+        '--max-requests', '1000',
+        '--max-requests-jitter', '100',
+        '--timeout', '30',
+        '--keep-alive', '2',
+        '--preload',
+        '--access-logfile', '-',
+        '--error-logfile', '-',
+        '--log-level', 'info',
+        'api:app'
+    ]
+    
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error starting Gunicorn: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print("Shutting down API server...")
+        sys.exit(0)
 
 if __name__ == '__main__':
     run_api()
