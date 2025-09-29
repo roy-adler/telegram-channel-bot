@@ -8,18 +8,52 @@ DATABASE_PATH = 'data/bot_database.db'
 
 def ensure_data_directory():
     """Create data directory if it doesn't exist"""
-    os.makedirs('data', exist_ok=True)
+    try:
+        os.makedirs('data', exist_ok=True)
+        print(f"Data directory ensured at: {os.path.abspath('data')}")
+        # Check if we can write to the directory
+        test_file = os.path.join('data', '.test_write')
+        with open(test_file, 'w') as f:
+            f.write('test')
+        os.remove(test_file)
+        print("Data directory is writable")
+    except Exception as e:
+        print(f"Error creating/accessing data directory: {e}")
+        print(f"Current working directory: {os.getcwd()}")
+        print(f"Attempting to create data directory with absolute path...")
+        # Try with absolute path
+        abs_data_path = os.path.abspath('data')
+        os.makedirs(abs_data_path, exist_ok=True)
+        print(f"Created data directory at: {abs_data_path}")
 
 def get_connection():
     """Get a database connection"""
     ensure_data_directory()
-    return sqlite3.connect(DATABASE_PATH)
+    try:
+        # Try to connect to the database
+        conn = sqlite3.connect(DATABASE_PATH)
+        # Test the connection by creating a simple table check
+        conn.execute("SELECT name FROM sqlite_master WHERE type='table' LIMIT 1")
+        return conn
+    except sqlite3.Error as e:
+        print(f"Database connection error: {e}")
+        # If connection fails, try to create a new database file
+        print(f"Attempting to create database at {DATABASE_PATH}")
+        conn = sqlite3.connect(DATABASE_PATH)
+        return conn
 
 def init_database():
     """Initialize the database with all required tables"""
+    print(f"Initializing database at: {os.path.abspath(DATABASE_PATH)}")
     ensure_data_directory()
-    conn = get_connection()
-    cursor = conn.cursor()
+    
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        print("Database connection established successfully")
+    except Exception as e:
+        print(f"Failed to establish database connection: {e}")
+        raise
     
     # Create users table
     cursor.execute('''
@@ -74,6 +108,7 @@ def init_database():
     
     conn.commit()
     conn.close()
+    print("Database initialization completed successfully")
 
 def create_default_channel():
     """Create a default channel if none exists"""
