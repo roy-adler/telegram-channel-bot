@@ -18,7 +18,7 @@ TELEGRAM_BOT_API_PORT = int(os.environ.get("TELEGRAM_BOT_API_PORT", 5000))
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
-# Global variable to store the bot application
+# Global variable to store the bot application (for compatibility)
 bot_app = None
 
 def set_bot_app(app_instance):
@@ -30,25 +30,35 @@ def set_bot_app(app_instance):
 
 def send_message_to_chat(chat_id, message):
     """Send a message to a specific chat (group or private)"""
-    if bot_app:
+    # Get the bot token directly from environment (thread-safe)
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not token:
+        return False
+    
+    try:
+        from telegram import Bot
+        bot = Bot(token)
+        
+        # Try to get existing event loop first
         try:
-            # Use asyncio to run the async function
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # No event loop exists, create a new one
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            loop.run_until_complete(bot_app.bot.send_message(chat_id=chat_id, text=message))
-            loop.close()
-            return True
-        except Exception as e:
-            print(f"Error sending message to chat {chat_id}: {e}")
-            return False
-    return False
+        
+        # Run the coroutine
+        loop.run_until_complete(bot.send_message(chat_id=chat_id, text=message))
+        return True
+    except Exception as e:
+        print(f"Error sending message to chat {chat_id}: {e}")
+        return False
 
 # Chat retrieval functions are now imported from db.py
 
 def authenticate_api():
     """Check if the API request is authenticated"""
     api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
-    print(f"Debug: Received API key: {api_key}, Expected: {TELEGRAM_BOT_API_KEY}")
     return api_key == TELEGRAM_BOT_API_KEY
 
 @app.route('/api/health', methods=['GET'])
