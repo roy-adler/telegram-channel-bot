@@ -55,18 +55,15 @@ def init_database():
         print(f"Failed to establish database connection: {e}")
         raise
     
-    # Create users table
+    # Create users table (simplified - just for tracking, no authentication)
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
             username TEXT,
             first_name TEXT,
             last_name TEXT,
-            is_authenticated BOOLEAN DEFAULT FALSE,
-            channel_id INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (channel_id) REFERENCES channels (channel_id)
+            last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -106,6 +103,20 @@ def init_database():
         )
     ''')
     
+    # Create authenticated_chats table to track which chats are authenticated for which channels
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS authenticated_chats (
+            chat_id INTEGER PRIMARY KEY,
+            chat_type TEXT NOT NULL,  -- 'group', 'supergroup', or 'private'
+            chat_title TEXT,
+            channel_id INTEGER NOT NULL,
+            is_active BOOLEAN DEFAULT TRUE,
+            authenticated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (channel_id) REFERENCES channels (channel_id)
+        )
+    ''')
+    
     conn.commit()
     conn.close()
     print("Database initialization completed successfully")
@@ -130,9 +141,9 @@ def create_default_channel():
     
     conn.close()
 
-# User operations
+# User operations (simplified - just tracking, no authentication)
 def add_user_to_db(user_id: int, username: str, first_name: str, last_name: str):
-    """Add or update a user in the database"""
+    """Add or update a user in the database (for tracking only)"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
@@ -145,94 +156,6 @@ def add_user_to_db(user_id: int, username: str, first_name: str, last_name: str)
     except Exception as e:
         print(f"Error in add_user_to_db: {e}")
         # Don't re-raise to prevent crashes
-
-def get_user_auth_status(user_id: int) -> Tuple[bool, Optional[int]]:
-    """Get user authentication status and channel ID"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT is_authenticated, channel_id FROM users WHERE user_id = ?', (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return (result[0] if result else False, result[1] if result else None)
-
-def get_user_channel_info(user_id: int) -> Optional[Tuple]:
-    """Get user's channel information"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT u.is_authenticated, u.channel_id, c.channel_name, c.description
-        FROM users u
-        LEFT JOIN channels c ON u.channel_id = c.channel_id
-        WHERE u.user_id = ?
-    ''', (user_id,))
-    result = cursor.fetchone()
-    conn.close()
-    return result
-
-def authenticate_user(user_id: int, channel_name: str, channel_secret: str) -> Tuple[bool, Optional[str], Optional[str]]:
-    """Authenticate a user with both channel name and secret"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # Check if both channel name and secret match and channel is active
-    cursor.execute('''
-        SELECT channel_id, channel_name, description 
-        FROM channels 
-        WHERE channel_name = ? AND channel_secret = ? AND is_active = TRUE
-    ''', (channel_name, channel_secret))
-    channel = cursor.fetchone()
-    
-    if channel:
-        channel_id, channel_name_db, description = channel
-        cursor.execute('''
-            UPDATE users 
-            SET is_authenticated = TRUE, channel_id = ?, last_seen = CURRENT_TIMESTAMP
-            WHERE user_id = ?
-        ''', (channel_id, user_id))
-        conn.commit()
-        conn.close()
-        return True, channel_name_db, description
-    conn.close()
-    return False, None, None
-
-
-def deauthenticate_user(user_id: int):
-    """Remove user authentication and channel association"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        UPDATE users 
-        SET is_authenticated = FALSE, channel_id = NULL
-        WHERE user_id = ?
-    ''', (user_id,))
-    conn.commit()
-    conn.close()
-
-def get_authenticated_users() -> List[Tuple]:
-    """Get all authenticated users from database"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_id, username, first_name, last_name, last_seen 
-        FROM users 
-        WHERE is_authenticated = TRUE
-    ''')
-    users = cursor.fetchall()
-    conn.close()
-    return users
-
-def get_users_in_channel(channel_id: int) -> List[Tuple]:
-    """Get all users in a specific channel"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT user_id, username, first_name, last_name, last_seen
-        FROM users 
-        WHERE channel_id = ? AND is_authenticated = TRUE
-    ''', (channel_id,))
-    results = cursor.fetchall()
-    conn.close()
-    return results
 
 # Group operations
 def add_group_to_db(group_id: int, group_title: str):
@@ -432,60 +355,83 @@ def reactivate_channel(channel_name: str) -> Tuple[bool, str]:
     finally:
         conn.close()
 
-# Chat operations for API
-def get_chats_with_authenticated_users() -> Tuple[List[Tuple], List[Tuple]]:
-    """Get all chats (groups and private chats) where at least one user is authenticated"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # Get all groups that have at least one authenticated user
-    cursor.execute('''
-        SELECT DISTINCT g.group_id, g.group_title, g.is_active
-        FROM groups g
-        INNER JOIN group_members gm ON g.group_id = gm.group_id
-        INNER JOIN users u ON gm.user_id = u.user_id
-        WHERE g.is_active = TRUE AND u.is_authenticated = TRUE
-    ''')
-    groups = cursor.fetchall()
-    
-    # Get all private chats (user_ids) that are authenticated
-    cursor.execute('''
-        SELECT DISTINCT user_id, username, first_name, last_name
-        FROM users 
-        WHERE is_authenticated = TRUE
-    ''')
-    private_chats = cursor.fetchall()
-    
-    conn.close()
-    
-    return groups, private_chats
+# Authenticated chat operations
+def add_authenticated_chat(chat_id: int, chat_type: str, chat_title: str, channel_id: int):
+    """Add or update an authenticated chat for a channel"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO authenticated_chats 
+            (chat_id, chat_type, chat_title, channel_id, is_active, last_activity)
+            VALUES (?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+        ''', (chat_id, chat_type, chat_title, channel_id))
+        conn.commit()
+        conn.close()
+        print(f"Chat {chat_id} ({chat_type}) authenticated for channel {channel_id}")
+    except Exception as e:
+        print(f"Error in add_authenticated_chat: {e}")
 
-def get_chats_in_channel(channel_id: int) -> Tuple[List[Tuple], List[Tuple]]:
-    """Get all chats (groups and private chats) where users from a specific channel are present"""
+def remove_authenticated_chat(chat_id: int):
+    """Remove chat authentication"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM authenticated_chats WHERE chat_id = ?', (chat_id,))
+        conn.commit()
+        conn.close()
+        print(f"Chat {chat_id} authentication removed")
+    except Exception as e:
+        print(f"Error in remove_authenticated_chat: {e}")
+
+def get_authenticated_chats_for_channel(channel_id: int) -> List[Tuple]:
+    """Get all authenticated chats for a specific channel"""
     conn = get_connection()
     cursor = conn.cursor()
-    
-    # Get all groups that have at least one user from the specified channel
     cursor.execute('''
-        SELECT DISTINCT g.group_id, g.group_title, g.is_active
-        FROM groups g
-        INNER JOIN group_members gm ON g.group_id = gm.group_id
-        INNER JOIN users u ON gm.user_id = u.user_id
-        WHERE g.is_active = TRUE AND u.channel_id = ? AND u.is_authenticated = TRUE
+        SELECT chat_id, chat_type, chat_title, is_active, authenticated_at, last_activity
+        FROM authenticated_chats 
+        WHERE channel_id = ? AND is_active = TRUE
+        ORDER BY last_activity DESC
     ''', (channel_id,))
-    groups = cursor.fetchall()
-    
-    # Get all private chats (user_ids) from the specified channel
+    results = cursor.fetchall()
+    conn.close()
+    return results
+
+def get_all_authenticated_chats() -> List[Tuple]:
+    """Get all authenticated chats across all channels"""
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute('''
-        SELECT DISTINCT user_id, username, first_name, last_name
-        FROM users 
-        WHERE channel_id = ? AND is_authenticated = TRUE
-    ''', (channel_id,))
-    private_chats = cursor.fetchall()
-    
+        SELECT ac.chat_id, ac.chat_type, ac.chat_title, ac.channel_id, 
+               c.channel_name, ac.is_active, ac.authenticated_at, ac.last_activity
+        FROM authenticated_chats ac
+        JOIN channels c ON ac.channel_id = c.channel_id
+        WHERE ac.is_active = TRUE
+        ORDER BY ac.last_activity DESC
+    ''')
+    results = cursor.fetchall()
+    conn.close()
+    return results
+
+def is_chat_authenticated(chat_id: int) -> Tuple[bool, Optional[int], Optional[str]]:
+    """Check if a chat is authenticated and return channel info"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT ac.is_active, ac.channel_id, c.channel_name
+        FROM authenticated_chats ac
+        JOIN channels c ON ac.channel_id = c.channel_id
+        WHERE ac.chat_id = ? AND ac.is_active = TRUE
+    ''', (chat_id,))
+    result = cursor.fetchone()
     conn.close()
     
-    return groups, private_chats
+    if result:
+        return result[0], result[1], result[2]
+    return False, None, None
+
+# Chat operations for API (simplified - only authenticated chats)
 
 # Statistics operations
 def get_bot_stats() -> dict:
@@ -493,12 +439,9 @@ def get_bot_stats() -> dict:
     conn = get_connection()
     cursor = conn.cursor()
     
-    # Get user stats
+    # Get basic stats
     cursor.execute('SELECT COUNT(*) FROM users')
     total_users = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM users WHERE is_authenticated = TRUE')
-    auth_users = cursor.fetchone()[0]
     
     cursor.execute('SELECT COUNT(*) FROM groups')
     total_groups = cursor.fetchone()[0]
@@ -506,13 +449,16 @@ def get_bot_stats() -> dict:
     cursor.execute('SELECT COUNT(*) FROM channels')
     total_channels = cursor.fetchone()[0]
     
-    # Get channel distribution
+    cursor.execute('SELECT COUNT(*) FROM authenticated_chats WHERE is_active = TRUE')
+    total_authenticated_chats = cursor.fetchone()[0]
+    
+    # Get channel distribution (based on authenticated chats)
     cursor.execute('''
-        SELECT c.channel_name, COUNT(u.user_id) as user_count
+        SELECT c.channel_name, COUNT(ac.chat_id) as chat_count
         FROM channels c
-        LEFT JOIN users u ON c.channel_id = u.channel_id AND u.is_authenticated = TRUE
+        LEFT JOIN authenticated_chats ac ON c.channel_id = ac.channel_id AND ac.is_active = TRUE
         GROUP BY c.channel_id, c.channel_name
-        ORDER BY user_count DESC
+        ORDER BY chat_count DESC
     ''')
     channel_distribution = cursor.fetchall()
     
@@ -520,14 +466,14 @@ def get_bot_stats() -> dict:
     
     return {
         "total_users": total_users,
-        "authenticated_users": auth_users,
         "total_groups": total_groups,
         "total_channels": total_channels,
+        "total_authenticated_chats": total_authenticated_chats,
         "channel_distribution": channel_distribution
     }
 
 def get_debug_info() -> dict:
-    """Get debug information about groups and users"""
+    """Get debug information about groups and authenticated chats"""
     conn = get_connection()
     cursor = conn.cursor()
     
@@ -537,7 +483,7 @@ def get_debug_info() -> dict:
     
     # Get all group members
     cursor.execute('''
-        SELECT gm.group_id, g.group_title, gm.user_id, u.username, u.first_name, u.is_authenticated
+        SELECT gm.group_id, g.group_title, gm.user_id, u.username, u.first_name
         FROM group_members gm
         JOIN groups g ON gm.group_id = g.group_id
         JOIN users u ON gm.user_id = u.user_id
@@ -545,21 +491,22 @@ def get_debug_info() -> dict:
     ''')
     group_members = cursor.fetchall()
     
-    # Get authenticated users
+    # Get authenticated chats
     cursor.execute('''
-        SELECT user_id, username, first_name, last_name, is_authenticated, channel_id
-        FROM users 
-        WHERE is_authenticated = TRUE
-        ORDER BY first_name
+        SELECT ac.chat_id, ac.chat_type, ac.chat_title, ac.channel_id, 
+               c.channel_name, ac.is_active, ac.authenticated_at
+        FROM authenticated_chats ac
+        JOIN channels c ON ac.channel_id = c.channel_id
+        ORDER BY ac.authenticated_at DESC
     ''')
-    auth_users = cursor.fetchall()
+    authenticated_chats = cursor.fetchall()
     
     conn.close()
     
     return {
         "groups": groups,
         "group_members": group_members,
-        "authenticated_users": auth_users
+        "authenticated_chats": authenticated_chats
     }
 
 # Standalone channel creation function for CLI usage

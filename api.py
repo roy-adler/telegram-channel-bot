@@ -7,8 +7,8 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from db import (
-    get_authenticated_users, get_users_in_channel, get_channel_by_name,
-    get_all_channels, get_chats_in_channel, get_bot_stats
+    get_all_channels, get_bot_stats,
+    get_authenticated_chats_for_channel, get_all_authenticated_chats
 )
 
 # Environment variables are loaded by docker-compose
@@ -64,33 +64,11 @@ def authenticate_api():
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
+    stats = get_bot_stats()
     return jsonify({
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "authenticated_users": len(get_authenticated_users())
-    })
-
-@app.route('/api/users', methods=['GET'])
-def get_users():
-    """Get all authenticated users"""
-    if not authenticate_api():
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    users = get_authenticated_users()
-    user_list = []
-    
-    for user in users:
-        user_list.append({
-            "user_id": user[0],
-            "username": user[1],
-            "first_name": user[2],
-            "last_name": user[3],
-            "last_seen": user[4]
-        })
-    
-    return jsonify({
-        "users": user_list,
-        "total": len(user_list)
+        "total_authenticated_chats": stats['total_authenticated_chats']
     })
 
 
@@ -136,52 +114,36 @@ def broadcast_to_channel():
             "sent_to": 0
         }), 400
     
-    # Get chats where users from this channel are present
-    groups, private_chats = get_chats_in_channel(channel_id)
+    # Get authenticated chats for this channel
+    authenticated_chats = get_authenticated_chats_for_channel(channel_id)
     
-    if not groups and not private_chats:
+    if not authenticated_chats:
         return jsonify({
-            "error": f"No chats found with users from channel '{channel_name_from_db}'",
+            "error": f"No authenticated chats found for channel '{channel_name_from_db}'",
             "sent_to": 0
         }), 404
     
-    # Send message to all chats
+    # Send message to all authenticated chats
     success_count = 0
     failed_chats = []
     
-    # Send to groups
-    for group_id, group_title, is_active in groups:
-        if send_message_to_chat(group_id, message):
+    for chat_id, chat_type, chat_title, is_active, authenticated_at, last_activity in authenticated_chats:
+        if send_message_to_chat(chat_id, message):
             success_count += 1
         else:
             failed_chats.append({
-                "chat_id": group_id,
-                "chat_type": "group",
-                "chat_title": group_title
+                "chat_id": chat_id,
+                "chat_type": chat_type,
+                "chat_title": chat_title
             })
     
-    # Send to private chats
-    for user_id, username, first_name, last_name in private_chats:
-        if send_message_to_chat(user_id, message):
-            success_count += 1
-        else:
-            failed_chats.append({
-                "chat_id": user_id,
-                "chat_type": "private",
-                "username": username,
-                "first_name": first_name,
-                "last_name": last_name
-            })
-    
-    total_chats = len(groups) + len(private_chats)
+    total_chats = len(authenticated_chats)
     
     response = {
         "message": f"Broadcast to channel '{channel_name_from_db}' completed",
         "channel": channel_name_from_db,
         "channel_id": channel_id,
-        "total_chats": total_chats,
-        "groups": len(groups),
-        "private_chats": len(private_chats),
+        "total_authenticated_chats": total_chats,
         "sent_to": success_count,
         "failed": len(failed_chats)
     }
@@ -216,9 +178,9 @@ def get_channels():
         "total": len(channel_list)
     })
 
-@app.route('/api/channel/<channel_name>/users', methods=['POST'])
-def get_channel_users(channel_name):
-    """Get users in a specific channel - requires channel secret for security"""
+@app.route('/api/channel/<channel_name>/chats', methods=['POST'])
+def get_channel_chats(channel_name):
+    """Get authenticated chats for a specific channel - requires channel secret for security"""
     if not authenticate_api():
         return jsonify({"error": "Unauthorized"}), 401
     
@@ -245,18 +207,19 @@ def get_channel_users(channel_name):
     if not is_active:
         return jsonify({"error": f"Channel '{channel_name_from_db}' is inactive"}), 400
     
-    # Get users in the channel
-    users = get_users_in_channel(channel_id)
-    user_list = []
+    # Get authenticated chats for the channel
+    chats = get_authenticated_chats_for_channel(channel_id)
+    chat_list = []
     
-    for user in users:
-        user_id, username, first_name, last_name, last_seen = user
-        user_list.append({
-            "user_id": user_id,
-            "username": username,
-            "first_name": first_name,
-            "last_name": last_name,
-            "last_seen": last_seen
+    for chat in chats:
+        chat_id, chat_type, chat_title, is_active, authenticated_at, last_activity = chat
+        chat_list.append({
+            "chat_id": chat_id,
+            "chat_type": chat_type,
+            "chat_title": chat_title,
+            "is_active": bool(is_active),
+            "authenticated_at": authenticated_at,
+            "last_activity": last_activity
         })
     
     return jsonify({
@@ -266,8 +229,8 @@ def get_channel_users(channel_name):
             "description": description,
             "is_active": bool(is_active)
         },
-        "users": user_list,
-        "total": len(user_list)
+        "chats": chat_list,
+        "total": len(chat_list)
     })
 
 @app.route('/api/stats', methods=['GET'])
@@ -278,16 +241,16 @@ def get_stats():
     
     stats = get_bot_stats()
     total_users = stats['total_users']
-    auth_users = stats['authenticated_users']
     total_groups = stats['total_groups']
     total_channels = stats['total_channels']
+    total_authenticated_chats = stats['total_authenticated_chats']
     channel_distribution = stats['channel_distribution']
     
     return jsonify({
         "total_users": total_users,
-        "authenticated_users": auth_users,
         "total_groups": total_groups,
         "total_channels": total_channels,
+        "total_authenticated_chats": total_authenticated_chats,
         "channel_distribution": {name: count for name, count in channel_distribution},
         "timestamp": datetime.now().isoformat()
     })

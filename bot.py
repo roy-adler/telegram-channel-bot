@@ -8,16 +8,16 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 from api import run_api, set_bot_app
 from db import (
-    init_database, create_default_channel, add_user_to_db, get_user_auth_status,
-    get_user_channel_info, authenticate_user, deauthenticate_user, add_group_to_db,
+    init_database, create_default_channel, add_user_to_db, add_group_to_db,
     add_user_to_group, remove_user_from_group, create_channel, get_channel_by_secret,
-    get_all_channels, get_users_in_channel, get_bot_stats, get_debug_info
+    get_all_channels, get_bot_stats, get_debug_info,
+    add_authenticated_chat, remove_authenticated_chat, is_chat_authenticated
 )
 
 # Environment variables are loaded by docker-compose
 
 # Debug: Print environment variables
-print("Environment variables loaded:")
+print("Environment variables loaded:") 
 print(f"TELEGRAM_BOT_TOKEN: {os.environ.get('TELEGRAM_BOT_TOKEN', 'NOT SET')[:10]}...")
 print(f"ADMIN_USER_ID: {os.environ.get('ADMIN_USER_ID', 'NOT SET')}")
 print(f"TELEGRAM_BOT_API_KEY: {os.environ.get('TELEGRAM_BOT_API_KEY', 'NOT SET')}")
@@ -54,20 +54,20 @@ async def start(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             
         add_user_to_db(user.id, user.username, user.first_name, user.last_name)
         
-        is_authenticated, channel_id = get_user_auth_status(user.id)
+        # Check if this chat is already authenticated
+        chat_id = update.effective_chat.id
+        is_authenticated, channel_id, channel_name = is_chat_authenticated(chat_id)
+        
         if is_authenticated:
-            channel_info = get_user_channel_info(user.id)
-            if channel_info and channel_info[2]:  # channel_name
-                await update.message.reply_text(
-                    f"Hello {user.first_name}! You are authenticated to channel '{channel_info[2]}'. Welcome back!"
-                )
-            else:
-                await update.message.reply_text(f"Hello {user.first_name}! You are authenticated. Welcome back!")
+            chat_type = "group" if update.effective_chat.type in ['group', 'supergroup'] else "private chat"
+            await update.message.reply_text(
+                f"Hello {user.first_name}! This {chat_type} is already authenticated for channel '{channel_name}'."
+            )
         else:
             keyboard = [[InlineKeyboardButton("Join Channel", callback_data="auth_request")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await update.message.reply_text(
-                f"Hello {user.first_name}! Please join a channel to use the bot's full features.",
+                f"Hello {user.first_name}! Use /join <channel_name> <channel_secret> to authenticate this chat for a channel.",
                 reply_markup=reply_markup
             )
     except Exception as e:
@@ -144,7 +144,7 @@ async def handle_callback_query(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         )
 
 async def join_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Handle channel join command"""
+    """Handle channel join command - authenticates the chat for the channel"""
     try:
         user = update.effective_user
         if not user:
@@ -178,26 +178,49 @@ async def join_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             # Format with both channel name and secret
             channel_name = ctx.args[0]
             channel_secret = ctx.args[1]
-            success, channel_name_verified, description = authenticate_user(user.id, channel_name, channel_secret)
-        
-        if success:
-            message = f"✅ Successfully joined channel '{channel_name_verified}'!"
+            
+            # Get channel information by secret (for security)
+            from db import get_channel_by_secret
+            channel_info = get_channel_by_secret(channel_secret)
+            if not channel_info:
+                await update.message.reply_text("❌ Invalid channel name or secret. Please check with your administrator.")
+                return
+            
+            channel_id, channel_name_from_db, description, is_active = channel_info
+            
+            # Verify the provided channel name matches the secret
+            if channel_name_from_db != channel_name:
+                await update.message.reply_text("❌ Channel name does not match the provided secret.")
+                return
+            
+            if not is_active:
+                await update.message.reply_text(f"❌ Channel '{channel_name_from_db}' is inactive.")
+                return
+            
+            # Authenticate the chat for this channel
+            chat_id = update.effective_chat.id
+            chat_type = update.effective_chat.type
+            chat_title = update.effective_chat.title or f"Chat {chat_id}"
+            
+            add_authenticated_chat(chat_id, chat_type, chat_title, channel_id)
+            
+            message = f"✅ This chat has been successfully authenticated for channel '{channel_name_from_db}'!"
             if description:
                 message += f"\n\nChannel description: {description}"
             
             # Add helpful message for group users
             if update.effective_chat.type in ['group', 'supergroup']:
-                message += f"\n\nYou can now receive broadcasts in this group!"
+                message += f"\n\nThis group will now receive broadcasts from channel '{channel_name_from_db}'!"
+            else:
+                message += f"\n\nYou will now receive broadcasts from channel '{channel_name_from_db}' in this chat!"
             
             await update.message.reply_text(message)
-        else:
-            await update.message.reply_text("❌ Invalid channel name or secret. Please check with your administrator.")
     except Exception as e:
         print(f"Error in join_command: {e}")
         await update.message.reply_text("❌ An error occurred. Please try again.")
 
 async def leave_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Handle channel leave command"""
+    """Handle channel leave command - removes chat authentication"""
     try:
         user = update.effective_user
         if not user:
@@ -206,21 +229,28 @@ async def leave_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             
         add_user_to_db(user.id, user.username, user.first_name, user.last_name)
         
-        is_authenticated, channel_id = get_user_auth_status(user.id)
+        # Check if this chat is authenticated
+        chat_id = update.effective_chat.id
+        is_authenticated, channel_id, channel_name = is_chat_authenticated(chat_id)
+        
         if not is_authenticated:
-            await update.message.reply_text("❌ You are not currently in any channel.")
+            await update.message.reply_text("❌ This chat is not currently authenticated for any channel.")
             return
         
-        # Remove user from channel
-        deauthenticate_user(user.id)
+        # Remove chat authentication
+        remove_authenticated_chat(chat_id)
         
-        await update.message.reply_text("✅ You have left the channel. Use /join <channel_secret> to join another channel.")
+        chat_type = "group" if update.effective_chat.type in ['group', 'supergroup'] else "private chat"
+        await update.message.reply_text(
+            f"✅ This {chat_type} has been removed from channel '{channel_name}'.\n"
+            f"Use /join <channel_name> <channel_secret> to join another channel."
+        )
     except Exception as e:
         print(f"Error in leave_command: {e}")
         await update.message.reply_text("❌ An error occurred. Please try again.")
 
 async def stop_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Handle stop command - remove user from group and deauthenticate"""
+    """Handle stop command - remove chat authentication"""
     try:
         user = update.effective_user
         if not user:
@@ -229,28 +259,33 @@ async def stop_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             
         add_user_to_db(user.id, user.username, user.first_name, user.last_name)
         
-        # Check if user is in a group
+        # Check if this chat is authenticated
+        chat_id = update.effective_chat.id
+        is_authenticated, channel_id, channel_name = is_chat_authenticated(chat_id)
+        
+        if not is_authenticated:
+            chat_type = "group" if update.effective_chat.type in ['group', 'supergroup'] else "private chat"
+            await update.message.reply_text(f"❌ This {chat_type} is not currently authenticated for any channel.")
+            return
+        
+        # Remove chat authentication
+        remove_authenticated_chat(chat_id)
+        
+        # If this is a group, also remove user from the group
         if update.effective_chat.type in ['group', 'supergroup']:
-            # Remove user from the group
             remove_user_from_group(update.effective_chat.id, user.id)
             print(f"User {user.id} removed from group {update.effective_chat.id}")
             
-            # Also deauthenticate the user
-            deauthenticate_user(user.id)
-            
             await update.message.reply_text(
-                f"✅ {user.first_name}, you have been removed from this group and deauthenticated.\n"
-                f"You will no longer receive broadcasts here.\n"
-                f"Use /join <channel_secret> to rejoin if needed."
+                f"✅ {user.first_name}, this group has been removed from channel '{channel_name}'.\n"
+                f"This group will no longer receive broadcasts.\n"
+                f"Use /join <channel_name> <channel_secret> to rejoin if needed."
             )
         else:
-            # If not in a group, just deauthenticate
-            deauthenticate_user(user.id)
-            
             await update.message.reply_text(
-                f"✅ {user.first_name}, you have been deauthenticated.\n"
-                f"You will no longer receive broadcasts.\n"
-                f"Use /join <channel_secret> to rejoin if needed."
+                f"✅ {user.first_name}, this private chat has been removed from channel '{channel_name}'.\n"
+                f"You will no longer receive broadcasts here.\n"
+                f"Use /join <channel_name> <channel_secret> to rejoin if needed."
             )
             
     except Exception as e:
@@ -258,7 +293,7 @@ async def stop_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred. Please try again.")
 
 async def status_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Check authentication status"""
+    """Check chat authentication status"""
     try:
         user = update.effective_user
         if not user:
@@ -272,15 +307,23 @@ async def status_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             add_group_to_db(update.effective_chat.id, update.effective_chat.title or "Unknown Group")
             add_user_to_group(update.effective_chat.id, user.id)
         
-        is_authenticated, channel_id = get_user_auth_status(user.id)
+        # Check if this chat is authenticated
+        chat_id = update.effective_chat.id
+        is_authenticated, channel_id, channel_name = is_chat_authenticated(chat_id)
+        
         if is_authenticated:
-            channel_info = get_user_channel_info(user.id)
-            if channel_info and channel_info[2]:  # channel_name
-                await update.message.reply_text(f"✅ You are in channel '{channel_info[2]}'")
-            else:
-                await update.message.reply_text("✅ You are authenticated!")
+            chat_type = "group" if update.effective_chat.type in ['group', 'supergroup'] else "private chat"
+            await update.message.reply_text(
+                f"✅ This {chat_type} is authenticated for channel '{channel_name}'\n"
+                f"Chat ID: {chat_id}\n"
+                f"Channel ID: {channel_id}"
+            )
         else:
-            await update.message.reply_text("❌ You are not in any channel. Use /join <channel_secret> to join a channel.")
+            chat_type = "group" if update.effective_chat.type in ['group', 'supergroup'] else "private chat"
+            await update.message.reply_text(
+                f"❌ This {chat_type} is not authenticated for any channel.\n"
+                f"Use /join <channel_name> <channel_secret> to join a channel."
+            )
     except Exception as e:
         print(f"Error in status_command: {e}")
         await update.message.reply_text("❌ An error occurred. Please try again.")
@@ -300,7 +343,7 @@ async def register_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             add_user_to_group(update.effective_chat.id, user.id)
             await update.message.reply_text(
                 f"✅ {user.first_name}, you are now registered in this group!\n"
-                f"Use /join <channel_secret> to authenticate and receive broadcasts."
+                f"Use /join <channel_name> <channel_secret> to authenticate this group for broadcasts."
             )
         else:
             await update.message.reply_text("❌ This command only works in groups.")
@@ -317,23 +360,32 @@ async def admin_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     
     stats = get_bot_stats()
     total_users = stats['total_users']
-    auth_users = stats['authenticated_users']
     total_groups = stats['total_groups']
     total_channels = stats['total_channels']
+    total_authenticated_chats = stats['total_authenticated_chats']
     channel_stats = stats['channel_distribution']
+    
+    # Get authenticated chats info
+    from db import get_all_authenticated_chats
+    authenticated_chats = get_all_authenticated_chats()
     
     stats_text = f"""
 📊 Bot Statistics:
 👥 Total Users: {total_users}
-✅ Authenticated Users: {auth_users}
 🏠 Active Groups: {total_groups}
 📺 Total Channels: {total_channels}
+💬 Authenticated Chats: {total_authenticated_chats}
 
 📺 Channel Distribution:
 """
     
-    for channel_name, user_count in channel_stats:
-        stats_text += f"• {channel_name}: {user_count} users\n"
+    for channel_name, chat_count in channel_stats:
+        stats_text += f"• {channel_name}: {chat_count} chats\n"
+    
+    if authenticated_chats:
+        stats_text += f"\n💬 Authenticated Chats:\n"
+        for chat_id, chat_type, chat_title, channel_id, channel_name, is_active, auth_at in authenticated_chats:
+            stats_text += f"• {chat_title} ({chat_type}) → {channel_name}\n"
     
     await update.message.reply_text(stats_text)
 
@@ -346,8 +398,8 @@ async def admin_create_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     
     if len(ctx.args) < 2:
         await update.message.reply_text(
-            "Usage: /create_channel <channel_name> <channel_secret> [description]\n"
-            "Example: /create_channel announcements secret123 This is for announcements"
+            "Usage: /create <channel_name> <channel_secret> [description]\n"
+            "Example: /create announcements secret123 This is for announcements"
         )
         return
     
@@ -390,15 +442,15 @@ async def admin_list_channels(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(response, parse_mode='Markdown')
 
-async def admin_channel_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Admin command to list users in a specific channel"""
+async def admin_channel_chats(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
+    """Admin command to list authenticated chats for a specific channel"""
     user = update.effective_user
     if str(user.id) != ADMIN_USER_ID:
         await update.message.reply_text("❌ Access denied. Admin only.")
         return
     
     if len(ctx.args) == 0:
-        await update.message.reply_text("Usage: /channel_users <channel_id>")
+        await update.message.reply_text("Usage: /channel_chats <channel_id>")
         return
     
     try:
@@ -419,23 +471,24 @@ async def admin_channel_users(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Channel with ID {channel_id} not found.")
         return
     
-    users = get_users_in_channel(channel_id)
+    from db import get_authenticated_chats_for_channel
+    chats = get_authenticated_chats_for_channel(channel_id)
     channel_name = channel[0]
     
-    if not users:
-        await update.message.reply_text(f"📺 No users found in channel '{channel_name}'.")
+    if not chats:
+        await update.message.reply_text(f"📺 No authenticated chats found for channel '{channel_name}'.")
         return
     
-    response = f"👥 Users in channel '{channel_name}':\n\n"
-    for user_id, username, first_name, last_name, last_seen in users:
-        display_name = f"{first_name} {last_name}".strip() or username or f"User {user_id}"
-        response += f"• {display_name} (@{username or 'N/A'})\n"
-        response += f"  ID: {user_id} | Last seen: {last_seen}\n\n"
+    response = f"💬 Authenticated chats for channel '{channel_name}':\n\n"
+    for chat_id, chat_type, chat_title, is_active, authenticated_at, last_activity in chats:
+        status = "🟢" if is_active else "🔴"
+        response += f"{status} {chat_title} ({chat_type})\n"
+        response += f"  ID: {chat_id} | Auth: {authenticated_at}\n\n"
     
     await update.message.reply_text(response)
 
 async def admin_debug_groups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Admin command to debug group and user tracking"""
+    """Admin command to debug group and chat tracking"""
     user = update.effective_user
     if str(user.id) != ADMIN_USER_ID:
         await update.message.reply_text("❌ Access denied. Admin only.")
@@ -444,7 +497,7 @@ async def admin_debug_groups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     debug_info = get_debug_info()
     groups = debug_info['groups']
     group_members = debug_info['group_members']
-    auth_users = debug_info['authenticated_users']
+    authenticated_chats = debug_info['authenticated_chats']
     
     response = "🔍 **Debug Information**\n\n"
     
@@ -457,20 +510,20 @@ async def admin_debug_groups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     # Group members section
     response += f"\n👥 **Group Members ({len(group_members)}):**\n"
     current_group = None
-    for group_id, group_title, user_id, username, first_name, is_authenticated in group_members:
+    for group_id, group_title, user_id, username, first_name in group_members:
         if current_group != group_id:
             response += f"\n**{group_title} (ID: {group_id}):**\n"
             current_group = group_id
         
-        auth_status = "✅" if is_authenticated else "❌"
         display_name = first_name or username or f"User {user_id}"
-        response += f"  {auth_status} {display_name} (@{username or 'N/A'})\n"
+        response += f"  • {display_name} (@{username or 'N/A'})\n"
     
-    # Authenticated users section
-    response += f"\n🔐 **Authenticated Users ({len(auth_users)}):**\n"
-    for user_id, username, first_name, last_name, is_authenticated, channel_id in auth_users:
-        display_name = f"{first_name} {last_name}".strip() or username or f"User {user_id}"
-        response += f"• {display_name} (@{username or 'N/A'}) - Channel: {channel_id}\n"
+    # Authenticated chats section
+    response += f"\n💬 **Authenticated Chats ({len(authenticated_chats)}):**\n"
+    for chat_id, chat_type, chat_title, channel_id, channel_name, is_active, auth_at in authenticated_chats:
+        status = "🟢" if is_active else "🔴"
+        response += f"{status} {chat_title} ({chat_type}) → {channel_name}\n"
+        response += f"  ID: {chat_id} | Auth: {auth_at}\n"
     
     await update.message.reply_text(response, parse_mode='Markdown')
 
@@ -488,9 +541,9 @@ app.add_handler(CommandHandler("stop", stop_command))
 app.add_handler(CommandHandler("status", status_command))
 app.add_handler(CommandHandler("register", register_command))
 app.add_handler(CommandHandler("stats", admin_stats))
-app.add_handler(CommandHandler("create_channel", admin_create_channel))
+app.add_handler(CommandHandler("create", admin_create_channel))
 app.add_handler(CommandHandler("list_channels", admin_list_channels))
-app.add_handler(CommandHandler("channel_users", admin_channel_users))
+app.add_handler(CommandHandler("channel_chats", admin_channel_chats))
 app.add_handler(CommandHandler("debug_groups", admin_debug_groups))
 async def handle_left_member(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     """Handle when members leave a group"""
