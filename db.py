@@ -106,13 +106,14 @@ def init_database():
     # Create authenticated_chats table to track which chats are authenticated for which channels
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS authenticated_chats (
-            chat_id INTEGER PRIMARY KEY,
+            chat_id INTEGER NOT NULL,
             chat_type TEXT NOT NULL,  -- 'group', 'supergroup', or 'private'
             chat_title TEXT,
             channel_id INTEGER NOT NULL,
             is_active BOOLEAN DEFAULT TRUE,
             authenticated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (chat_id, channel_id),
             FOREIGN KEY (channel_id) REFERENCES channels (channel_id)
         )
     ''')
@@ -390,16 +391,62 @@ def add_authenticated_chat(chat_id: int, chat_type: str, chat_title: str, channe
         print(f"Error in add_authenticated_chat: {e}")
 
 def remove_authenticated_chat(chat_id: int):
-    """Remove chat authentication"""
+    """Remove chat authentication from all channels"""
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute('DELETE FROM authenticated_chats WHERE chat_id = ?', (chat_id,))
         conn.commit()
         conn.close()
-        print(f"Chat {chat_id} authentication removed")
+        print(f"Chat {chat_id} authentication removed from all channels")
     except Exception as e:
         print(f"Error in remove_authenticated_chat: {e}")
+
+def get_authenticated_channels_for_chat(chat_id: int) -> List[Tuple]:
+    """Get all channels that a chat is authenticated for"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute('''
+        SELECT ac.channel_id, c.channel_name, ac.authenticated_at
+        FROM authenticated_chats ac
+        JOIN channels c ON ac.channel_id = c.channel_id
+        WHERE ac.chat_id = ? AND ac.is_active = TRUE
+        ORDER BY ac.authenticated_at DESC
+    ''', (chat_id,))
+    results = cursor.fetchall()
+    conn.close()
+    return results
+
+def remove_authenticated_chat_from_channel(chat_id: int, channel_name: str) -> Tuple[bool, str]:
+    """Remove chat authentication from a specific channel"""
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # First, get the channel_id for the given channel_name
+        cursor.execute('SELECT channel_id FROM channels WHERE channel_name = ? AND is_active = TRUE', (channel_name,))
+        channel = cursor.fetchone()
+        
+        if not channel:
+            return False, f"Channel '{channel_name}' not found or inactive"
+        
+        channel_id = channel[0]
+        
+        # Check if the chat is actually authenticated for this channel
+        cursor.execute('SELECT chat_id FROM authenticated_chats WHERE chat_id = ? AND channel_id = ?', (chat_id, channel_id))
+        if not cursor.fetchone():
+            return False, f"Chat is not authenticated for channel '{channel_name}'"
+        
+        # Remove the authentication
+        cursor.execute('DELETE FROM authenticated_chats WHERE chat_id = ? AND channel_id = ?', (chat_id, channel_id))
+        conn.commit()
+        conn.close()
+        
+        print(f"Chat {chat_id} authentication removed from channel '{channel_name}'")
+        return True, f"Removed from channel '{channel_name}'"
+        
+    except Exception as e:
+        return False, f"Error removing authentication: {e}"
 
 def get_authenticated_chats_for_channel(channel_id: int) -> List[Tuple]:
     """Get all authenticated chats for a specific channel"""

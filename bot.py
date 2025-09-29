@@ -11,7 +11,8 @@ from db import (
     init_database, create_default_channel, add_user_to_db, add_group_to_db,
     add_user_to_group, remove_user_from_group, create_channel, get_channel_by_secret,
     get_all_channels, get_bot_stats, get_debug_info,
-    add_authenticated_chat, remove_authenticated_chat, is_chat_authenticated
+    add_authenticated_chat, remove_authenticated_chat, is_chat_authenticated,
+    get_authenticated_channels_for_chat, remove_authenticated_chat_from_channel
 )
 
 # Environment variables are loaded by docker-compose
@@ -250,7 +251,7 @@ async def leave_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ An error occurred. Please try again.")
 
 async def stop_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
-    """Handle stop command - remove chat authentication"""
+    """Handle stop command - remove chat authentication from all channels or specific channels"""
     try:
         user = update.effective_user
         if not user:
@@ -259,34 +260,69 @@ async def stop_command(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
             
         add_user_to_db(user.id, user.username, user.first_name, user.last_name)
         
-        # Check if this chat is authenticated
         chat_id = update.effective_chat.id
-        is_authenticated, channel_id, channel_name = is_chat_authenticated(chat_id)
+        chat_type = "group" if update.effective_chat.type in ['group', 'supergroup'] else "private chat"
         
-        if not is_authenticated:
-            chat_type = "group" if update.effective_chat.type in ['group', 'supergroup'] else "private chat"
-            await update.message.reply_text(f"❌ This {chat_type} is not currently authenticated for any channel.")
-            return
-        
-        # Remove chat authentication
-        remove_authenticated_chat(chat_id)
-        
-        # If this is a group, also remove user from the group
-        if update.effective_chat.type in ['group', 'supergroup']:
-            remove_user_from_group(update.effective_chat.id, user.id)
-            print(f"User {user.id} removed from group {update.effective_chat.id}")
+        # Check if no arguments provided - remove from all channels
+        if len(ctx.args) == 0:
+            # Get all authenticated channels for this chat
+            authenticated_channels = get_authenticated_channels_for_chat(chat_id)
             
-            await update.message.reply_text(
-                f"✅ {user.first_name}, this group has been removed from channel '{channel_name}'.\n"
-                f"This group will no longer receive broadcasts.\n"
-                f"Use /join <channel_name> <channel_secret> to rejoin if needed."
-            )
+            if not authenticated_channels:
+                await update.message.reply_text(f"❌ This {chat_type} is not currently authenticated for any channel.")
+                return
+            
+            # Remove from all channels
+            remove_authenticated_chat(chat_id)
+            
+            # If this is a group, also remove user from the group
+            if update.effective_chat.type in ['group', 'supergroup']:
+                remove_user_from_group(update.effective_chat.id, user.id)
+                print(f"User {user.id} removed from group {update.effective_chat.id}")
+            
+            channel_names = [channel[1] for channel in authenticated_channels]
+            response = f"✅ {user.first_name}, this {chat_type} has been removed from all channels:\n"
+            for channel_name in channel_names:
+                response += f"• {channel_name}\n"
+            response += f"\nThis {chat_type} will no longer receive broadcasts.\n"
+            response += f"Use /join <channel_name> <channel_secret> to rejoin if needed."
+            
+            await update.message.reply_text(response)
+            
         else:
-            await update.message.reply_text(
-                f"✅ {user.first_name}, this private chat has been removed from channel '{channel_name}'.\n"
-                f"You will no longer receive broadcasts here.\n"
-                f"Use /join <channel_name> <channel_secret> to rejoin if needed."
-            )
+            # Handle specific channel arguments
+            channel_names = ctx.args
+            successful_removals = []
+            failed_removals = []
+            
+            for channel_name in channel_names:
+                success, message = remove_authenticated_chat_from_channel(chat_id, channel_name)
+                if success:
+                    successful_removals.append(channel_name)
+                else:
+                    failed_removals.append(f"{channel_name}: {message}")
+            
+            # Build response message
+            response = f"✅ {user.first_name}, stop command results:\n\n"
+            
+            if successful_removals:
+                response += f"**Successfully removed from:**\n"
+                for channel_name in successful_removals:
+                    response += f"• {channel_name}\n"
+                response += "\n"
+            
+            if failed_removals:
+                response += f"**Failed to remove from:**\n"
+                for failure in failed_removals:
+                    response += f"• {failure}\n"
+                response += "\n"
+            
+            if not successful_removals and not failed_removals:
+                response = f"❌ No channels specified or processed."
+            elif successful_removals:
+                response += f"Use /join <channel_name> <channel_secret> to rejoin if needed."
+            
+            await update.message.reply_text(response, parse_mode='Markdown')
             
     except Exception as e:
         print(f"Error in stop_command: {e}")
