@@ -407,13 +407,19 @@ async def admin_create_channel(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
     channel_secret = ctx.args[1]
     description = " ".join(ctx.args[2:]) if len(ctx.args) > 2 else ""
     
-    success, message = create_channel(channel_name, channel_secret, description, user.id)
+    # Get chat information for automatic authentication
+    chat_id = update.effective_chat.id
+    chat_type = update.effective_chat.type
+    chat_title = update.effective_chat.title or f"Chat {chat_id}"
+    
+    success, message = create_channel(channel_name, channel_secret, description, user.id, chat_id, chat_type, chat_title)
     
     if success:
         response = f"✅ Channel '{channel_name}' created successfully!\n"
         response += f"Secret: `{channel_secret}`\n"
         if description:
-            response += f"Description: {description}"
+            response += f"Description: {description}\n"
+        response += f"🔗 This chat has been automatically authenticated for the new channel."
         await update.message.reply_text(response, parse_mode='Markdown')
     else:
         await update.message.reply_text(f"❌ {message}")

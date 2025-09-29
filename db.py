@@ -205,8 +205,8 @@ def remove_user_from_group(group_id: int, user_id: int):
         # Don't re-raise to prevent crashes
 
 # Channel operations
-def create_channel(channel_name: str, channel_secret: str, description: str = "", created_by: int = 1) -> Tuple[bool, str]:
-    """Create a new channel"""
+def create_channel(channel_name: str, channel_secret: str, description: str = "", created_by: int = 1, chat_id: int = None, chat_type: str = None, chat_title: str = None) -> Tuple[bool, str]:
+    """Create a new channel and optionally authenticate the chat where it's created"""
     conn = get_connection()
     cursor = conn.cursor()
     try:
@@ -214,6 +214,23 @@ def create_channel(channel_name: str, channel_secret: str, description: str = ""
             INSERT INTO channels (channel_name, channel_secret, description, created_by)
             VALUES (?, ?, ?, ?)
         ''', (channel_name, channel_secret, description, created_by))
+        
+        # Get the channel_id of the newly created channel
+        channel_id = cursor.lastrowid
+        
+        # If chat information is provided, automatically authenticate the chat for this channel
+        if chat_id is not None and chat_type is not None:
+            try:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO authenticated_chats 
+                    (chat_id, chat_type, chat_title, channel_id, is_active, last_activity)
+                    VALUES (?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+                ''', (chat_id, chat_type, chat_title or f"Chat {chat_id}", channel_id))
+                print(f"Chat {chat_id} ({chat_type}) automatically authenticated for new channel '{channel_name}'")
+            except Exception as auth_error:
+                print(f"Warning: Failed to auto-authenticate chat {chat_id} for channel '{channel_name}': {auth_error}")
+                # Don't fail channel creation if authentication fails
+        
         conn.commit()
         return True, "Channel created successfully"
     except sqlite3.IntegrityError as e:
