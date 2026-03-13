@@ -5,37 +5,62 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Telegram Channel Sender</title>
   <style>
+    :root {
+      --tg-blue: #229ed9;
+      --tg-blue-dark: #1d8ec2;
+      --tg-bg: #eaf4fb;
+      --tg-border: #cfe6f4;
+      --tg-text: #1f2d3d;
+    }
     body {
       margin: 0;
-      font-family: sans-serif;
-      background: #f5f5f5;
-      color: #111;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(180deg, #dff1ff 0%, #eef7ff 100%);
+      color: var(--tg-text);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
     }
     .container {
       max-width: 520px;
-      margin: 48px auto;
+      width: 100%;
       background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 20px;
+      border: 1px solid var(--tg-border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 14px 35px rgba(34, 158, 217, 0.18);
     }
     h1 {
-      margin: 0 0 16px;
-      font-size: 22px;
+      margin: 0 0 6px;
+      font-size: 24px;
+      color: #106b9f;
+    }
+    .subtitle {
+      margin: 0 0 18px;
+      font-size: 14px;
+      color: #5f7d90;
     }
     label {
       display: block;
       margin-bottom: 6px;
       font-weight: 600;
+      color: #285368;
     }
     input, textarea, button {
       width: 100%;
       box-sizing: border-box;
       margin-bottom: 14px;
-      padding: 10px;
+      padding: 11px 12px;
       font-size: 14px;
-      border: 1px solid #ccc;
-      border-radius: 6px;
+      border: 1px solid var(--tg-border);
+      border-radius: 10px;
+    }
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--tg-blue);
+      box-shadow: 0 0 0 3px rgba(34, 158, 217, 0.17);
     }
     textarea {
       min-height: 140px;
@@ -43,34 +68,39 @@
     }
     button {
       cursor: pointer;
-      background: #111;
+      background: var(--tg-blue);
       color: #fff;
       border: none;
       font-weight: 600;
+      transition: background 0.15s ease;
+    }
+    button:hover {
+      background: var(--tg-blue-dark);
     }
     #result {
       margin-top: 8px;
-      padding: 10px;
-      border-radius: 6px;
+      padding: 12px;
+      border-radius: 10px;
       display: none;
       white-space: pre-wrap;
       word-break: break-word;
     }
     #result.ok {
-      background: #e8f7ee;
-      color: #0f6b35;
-      border: 1px solid #b6e4c8;
+      background: var(--tg-bg);
+      color: #0b5f8e;
+      border: 1px solid var(--tg-border);
     }
     #result.error {
-      background: #fdecec;
+      background: #fff1f1;
       color: #8e2323;
-      border: 1px solid #f6caca;
+      border: 1px solid #f7d1d1;
     }
   </style>
 </head>
 <body>
   <div class="container">
     <h1>Send Message to Telegram Channel</h1>
+    <p class="subtitle">Simple Telegram-style sender</p>
     <form id="send-form">
       <label for="channel_name">Channel Name</label>
       <input id="channel_name" name="channel_name" required>
