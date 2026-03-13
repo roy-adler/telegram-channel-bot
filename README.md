@@ -89,6 +89,7 @@ curl -X POST http://localhost:5000/api/broadcast-to-channel \
 ## Environment Variables
 
 - `TELEGRAM_BOT_TOKEN`: Your bot token from @BotFather
+- `TELEGRAM_API_URL`: Telegram API host (default: `api.telegram.org`)
 - `ADMIN_USER_ID`: Your Telegram user ID (for admin commands)
 - `TELEGRAM_BOT_API_KEY`: API key for REST API authentication
 - `TELEGRAM_BOT_API_PORT`: Port for the API server (default: 5000)
