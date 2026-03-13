@@ -13,9 +13,9 @@ from db import (
 
 # Environment variables are loaded by docker-compose
 
-TELEGRAM_BOT_API_KEY = os.environ.get("TELEGRAM_BOT_API_KEY", "change-me")
-TELEGRAM_BOT_API_PORT = int(os.environ.get("TELEGRAM_BOT_API_PORT", 5000))
-TELEGRAM_API_URL = os.environ.get("TELEGRAM_API_URL", "api.telegram.org").strip().rstrip("/")
+TELEGRAM_CHANNEL_BOT_API_KEY = os.environ.get("TELEGRAM_CHANNEL_BOT_API_KEY", "change-me")
+TELEGRAM_CHANNEL_BOT_API_PORT = int(os.environ.get("TELEGRAM_CHANNEL_BOT_API_PORT", 5000))
+TELEGRAM_CHANNEL_BOT_API_URL = os.environ.get("TELEGRAM_CHANNEL_BOT_API_URL", "api.telegram.org").strip().rstrip("/")
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
@@ -32,7 +32,7 @@ def set_bot_app(app_instance):
 def send_message_to_chat(chat_id, message):
     """Send a message to a specific chat (group or private)"""
     # Get the bot token directly from environment (thread-safe)
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    token = os.environ.get("TELEGRAM_CHANNEL_BOT_TOKEN")
     if not token:
         return False
     
@@ -40,8 +40,8 @@ def send_message_to_chat(chat_id, message):
         from telegram import Bot
         bot = Bot(
             token=token,
-            base_url=f"https://{TELEGRAM_API_URL}/bot",
-            base_file_url=f"https://{TELEGRAM_API_URL}/file/bot",
+            base_url=f"https://{TELEGRAM_CHANNEL_BOT_API_URL}/bot",
+            base_file_url=f"https://{TELEGRAM_CHANNEL_BOT_API_URL}/file/bot",
         )
         
         # Try to get existing event loop first
@@ -64,7 +64,7 @@ def send_message_to_chat(chat_id, message):
 def authenticate_api():
     """Check if the API request is authenticated"""
     api_key = request.headers.get('X-API-Key') or request.args.get('api_key')
-    return api_key == TELEGRAM_BOT_API_KEY
+    return api_key == TELEGRAM_CHANNEL_BOT_API_KEY
 
 @app.route('/api/health', methods=['GET'])
 def health_check():
@@ -268,7 +268,7 @@ def run_api():
     # Use Gunicorn for production WSGI server
     cmd = [
         'gunicorn',
-        '--bind', f'0.0.0.0:{TELEGRAM_BOT_API_PORT}',
+        '--bind', f'0.0.0.0:{TELEGRAM_CHANNEL_BOT_API_PORT}',
         '--workers', '2',
         '--worker-class', 'sync',
         '--worker-connections', '1000',

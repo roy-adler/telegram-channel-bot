@@ -19,26 +19,26 @@ from db import (
 
 # Debug: Print environment variables
 print("Environment variables loaded:") 
-print(f"TELEGRAM_BOT_TOKEN: {os.environ.get('TELEGRAM_BOT_TOKEN', 'NOT SET')[:10]}...")
+print(f"TELEGRAM_CHANNEL_BOT_TOKEN: {os.environ.get('TELEGRAM_CHANNEL_BOT_TOKEN', 'NOT SET')[:10]}...")
 print(f"ADMIN_USER_ID: {os.environ.get('ADMIN_USER_ID', 'NOT SET')}")
-print(f"TELEGRAM_BOT_API_KEY: {os.environ.get('TELEGRAM_BOT_API_KEY', 'NOT SET')}")
-print(f"TELEGRAM_API_URL: {os.environ.get('TELEGRAM_API_URL', 'api.telegram.org')}")
+print(f"TELEGRAM_CHANNEL_BOT_API_KEY: {os.environ.get('TELEGRAM_CHANNEL_BOT_API_KEY', 'NOT SET')}")
+print(f"TELEGRAM_CHANNEL_BOT_API_URL: {os.environ.get('TELEGRAM_CHANNEL_BOT_API_URL', 'api.telegram.org')}")
 
 try:
-    TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
+    TOKEN = os.environ["TELEGRAM_CHANNEL_BOT_TOKEN"]
     if not TOKEN or TOKEN == "your_bot_token_here":
-        raise ValueError("TELEGRAM_BOT_TOKEN not set or using default value")
+        raise ValueError("TELEGRAM_CHANNEL_BOT_TOKEN not set or using default value")
 except KeyError:
-    print("ERROR: TELEGRAM_BOT_TOKEN environment variable not found!")
+    print("ERROR: TELEGRAM_CHANNEL_BOT_TOKEN environment variable not found!")
     print("Please check your .env file or environment variables.")
     exit(1)
 except ValueError as e:
     print(f"ERROR: {e}")
-    print("Please set a valid TELEGRAM_BOT_TOKEN in your .env file.")
+    print("Please set a valid TELEGRAM_CHANNEL_BOT_TOKEN in your .env file.")
     exit(1)
 
 ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID", "")  # Your Telegram user ID
-TELEGRAM_API_URL = os.environ.get("TELEGRAM_API_URL", "api.telegram.org").strip().rstrip("/")
+TELEGRAM_CHANNEL_BOT_API_URL = os.environ.get("TELEGRAM_CHANNEL_BOT_API_URL", "api.telegram.org").strip().rstrip("/")
 
 # Database initialization is now handled by db.py
 
@@ -574,8 +574,8 @@ async def admin_debug_groups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 app = (
     Application.builder()
     .token(TOKEN)
-    .base_url(f"https://{TELEGRAM_API_URL}/bot")
-    .base_file_url(f"https://{TELEGRAM_API_URL}/file/bot")
+    .base_url(f"https://{TELEGRAM_CHANNEL_BOT_API_URL}/bot")
+    .base_file_url(f"https://{TELEGRAM_CHANNEL_BOT_API_URL}/file/bot")
     .build()
 )
 
@@ -612,7 +612,7 @@ if __name__ == "__main__":
         # Start API server in a separate thread
         api_thread = threading.Thread(target=run_api, daemon=True)
         api_thread.start()
-        print(f"API server started on port {os.environ.get('TELEGRAM_BOT_API_PORT', 5000)}")
+        print(f"API server started on port {os.environ.get('TELEGRAM_CHANNEL_BOT_API_PORT', 5000)}")
         
         # Run the bot in polling mode
         print("Starting bot in polling mode...")

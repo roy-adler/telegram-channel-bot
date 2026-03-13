@@ -366,7 +366,7 @@ Add these variables to your `.env` file:
 
 ```env
 API_KEY=your_secure_api_key_here
-TELEGRAM_BOT_API_PORT=5000
+TELEGRAM_CHANNEL_BOT_API_PORT=5000
 ```
 
 The API will start automatically when you run the bot.

@@ -7,10 +7,10 @@ This project contains a Telegram channel bot that runs using Docker Compose. The
 1. **Create a `.env` file** in the project root with the following variables:
    ```bash
    # Copy from env.example and update with your values
-   TELEGRAM_BOT_TOKEN=your_bot_token_here
-   TELEGRAM_API_URL=api.telegram.org
-   TELEGRAM_BOT_PUBLIC_URL=https://yourdomain.com
-   TELEGRAM_BOT_SECRET_TOKEN=your_secret_token_here
+   TELEGRAM_CHANNEL_BOT_TOKEN=your_bot_token_here
+   TELEGRAM_CHANNEL_BOT_API_URL=api.telegram.org
+   TELEGRAM_CHANNEL_BOT_PUBLIC_URL=https://yourdomain.com
+   TELEGRAM_CHANNEL_BOT_SECRET_TOKEN=your_secret_token_here
    ```
 
 2. **Get your bot token**:
@@ -88,11 +88,11 @@ curl -X POST http://localhost:5000/api/broadcast-to-channel \
 
 ## Environment Variables
 
-- `TELEGRAM_BOT_TOKEN`: Your bot token from @BotFather
-- `TELEGRAM_API_URL`: Telegram API host (default: `api.telegram.org`)
+- `TELEGRAM_CHANNEL_BOT_TOKEN`: Your bot token from @BotFather
+- `TELEGRAM_CHANNEL_BOT_API_URL`: Telegram API host (default: `api.telegram.org`)
 - `ADMIN_USER_ID`: Your Telegram user ID (for admin commands)
-- `TELEGRAM_BOT_API_KEY`: API key for REST API authentication
-- `TELEGRAM_BOT_API_PORT`: Port for the API server (default: 5000)
+- `TELEGRAM_CHANNEL_BOT_API_KEY`: API key for REST API authentication
+- `TELEGRAM_CHANNEL_BOT_API_PORT`: Port for the API server (default: 5000)
 
 ## Usage Examples
 
@@ -134,7 +134,7 @@ For local testing, you can use ngrok:
 1. Install ngrok: https://ngrok.com/
 2. Run: `ngrok http 5000` (note: port 5000 for API, not 8080)
 3. Copy the HTTPS URL (e.g., `https://abc123.ngrok.io`)
-4. Set `TELEGRAM_BOT_PUBLIC_URL=https://abc123.ngrok.io` in your `.env` file
+4. Set `TELEGRAM_CHANNEL_BOT_PUBLIC_URL=https://abc123.ngrok.io` in your `.env` file
 5. Run `docker-compose up --build`
 
 ## Health Check
