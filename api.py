@@ -15,7 +15,7 @@ from db import (
 
 TELEGRAM_CHANNEL_BOT_API_KEY = os.environ.get("TELEGRAM_CHANNEL_BOT_API_KEY", "change-me")
 TELEGRAM_CHANNEL_BOT_API_PORT = int(os.environ.get("TELEGRAM_CHANNEL_BOT_API_PORT", 5000))
-TELEGRAM_CHANNEL_BOT_API_URL = os.environ.get("TELEGRAM_CHANNEL_BOT_API_URL", "api.telegram.org").strip().rstrip("/")
+TELEGRAM_API_URL = os.environ.get("TELEGRAM_API_URL", "api.telegram.org").strip().rstrip("/")
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
@@ -40,8 +40,8 @@ def send_message_to_chat(chat_id, message):
         from telegram import Bot
         bot = Bot(
             token=token,
-            base_url=f"https://{TELEGRAM_CHANNEL_BOT_API_URL}/bot",
-            base_file_url=f"https://{TELEGRAM_CHANNEL_BOT_API_URL}/file/bot",
+            base_url=f"https://{TELEGRAM_API_URL}/bot",
+            base_file_url=f"https://{TELEGRAM_API_URL}/file/bot",
         )
         
         # Try to get existing event loop first

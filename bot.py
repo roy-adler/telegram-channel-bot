@@ -22,7 +22,7 @@ print("Environment variables loaded:")
 print(f"TELEGRAM_CHANNEL_BOT_TOKEN: {os.environ.get('TELEGRAM_CHANNEL_BOT_TOKEN', 'NOT SET')[:10]}...")
 print(f"ADMIN_USER_ID: {os.environ.get('ADMIN_USER_ID', 'NOT SET')}")
 print(f"TELEGRAM_CHANNEL_BOT_API_KEY: {os.environ.get('TELEGRAM_CHANNEL_BOT_API_KEY', 'NOT SET')}")
-print(f"TELEGRAM_CHANNEL_BOT_API_URL: {os.environ.get('TELEGRAM_CHANNEL_BOT_API_URL', 'api.telegram.org')}")
+print(f"TELEGRAM_API_URL: {os.environ.get('TELEGRAM_API_URL', 'api.telegram.org')}")
 
 try:
     TOKEN = os.environ["TELEGRAM_CHANNEL_BOT_TOKEN"]
@@ -38,7 +38,7 @@ except ValueError as e:
     exit(1)
 
 ADMIN_USER_ID = os.environ.get("ADMIN_USER_ID", "")  # Your Telegram user ID
-TELEGRAM_CHANNEL_BOT_API_URL = os.environ.get("TELEGRAM_CHANNEL_BOT_API_URL", "api.telegram.org").strip().rstrip("/")
+TELEGRAM_API_URL = os.environ.get("TELEGRAM_API_URL", "api.telegram.org").strip().rstrip("/")
 
 # Database initialization is now handled by db.py
 
@@ -574,8 +574,8 @@ async def admin_debug_groups(update: Update, ctx: ContextTypes.DEFAULT_TYPE):
 app = (
     Application.builder()
     .token(TOKEN)
-    .base_url(f"https://{TELEGRAM_CHANNEL_BOT_API_URL}/bot")
-    .base_file_url(f"https://{TELEGRAM_CHANNEL_BOT_API_URL}/file/bot")
+    .base_url(f"https://{TELEGRAM_API_URL}/bot")
+    .base_file_url(f"https://{TELEGRAM_API_URL}/file/bot")
     .build()
 )
 
