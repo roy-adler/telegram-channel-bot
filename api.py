@@ -78,27 +78,21 @@ def health_check():
 @app.route('/', methods=['GET'])
 def landing_page():
     """Very simple landing page for sending channel broadcasts."""
-    return render_template("landing.html", api_key=TELEGRAM_CHANNEL_BOT_API_KEY)
+    return render_template("landing.html")
 
 
-@app.route('/api/broadcast-to-channel', methods=['POST'])
-def broadcast_to_channel():
-    """Broadcast a message to chats where users from a specific channel are present"""
-    if not authenticate_api():
-        return jsonify({"error": "Unauthorized"}), 401
-    
-    data = request.get_json()
-    
+def _broadcast_to_channel_logic(data):
+    """Core broadcast logic shared by authenticated API and public landing form."""
     if not data or 'message' not in data or 'channel_name' not in data or 'channel_secret' not in data:
         return jsonify({"error": "Message, channel, and channel_secret are required"}), 400
-    
+
     message = data['message']
     channel = data['channel_name']
     channel_secret = data['channel_secret']
-    
+
     if not message.strip() or not channel.strip() or not channel_secret.strip():
         return jsonify({"error": "Message, channel, and channel_secret cannot be empty"}), 400
-    
+
     # Get channel information by secret (for security)
     from db import get_channel_by_secret
     channel_info = get_channel_by_secret(channel_secret)
@@ -107,35 +101,35 @@ def broadcast_to_channel():
             "error": "Invalid channel secret",
             "sent_to": 0
         }), 401
-    
+
     channel_id, channel_name_from_db, description, is_active = channel_info
-    
+
     # Verify the provided channel name matches the secret
     if channel_name_from_db != channel:
         return jsonify({
             "error": "Channel name does not match the provided secret",
             "sent_to": 0
         }), 401
-    
+
     if not is_active:
         return jsonify({
             "error": f"Channel '{channel_name_from_db}' is inactive",
             "sent_to": 0
         }), 400
-    
+
     # Get authenticated chats for this channel
     authenticated_chats = get_authenticated_chats_for_channel(channel_id)
-    
+
     if not authenticated_chats:
         return jsonify({
             "error": f"No authenticated chats found for channel '{channel_name_from_db}'",
             "sent_to": 0
         }), 404
-    
+
     # Send message to all authenticated chats
     success_count = 0
     failed_chats = []
-    
+
     for chat_id, chat_type, chat_title, is_active, authenticated_at, last_activity in authenticated_chats:
         if send_message_to_chat(chat_id, message):
             success_count += 1
@@ -145,9 +139,9 @@ def broadcast_to_channel():
                 "chat_type": chat_type,
                 "chat_title": chat_title
             })
-    
+
     total_chats = len(authenticated_chats)
-    
+
     response = {
         "message": f"Broadcast to channel '{channel_name_from_db}' completed",
         "channel": channel_name_from_db,
@@ -156,11 +150,28 @@ def broadcast_to_channel():
         "sent_to": success_count,
         "failed": len(failed_chats)
     }
-    
+
     if failed_chats:
         response["failed_chats"] = failed_chats
-    
+
     return jsonify(response)
+
+
+@app.route('/api/broadcast-to-channel', methods=['POST'])
+def broadcast_to_channel():
+    """Broadcast a message to chats where users from a specific channel are present"""
+    if not authenticate_api():
+        return jsonify({"error": "Unauthorized"}), 401
+
+    data = request.get_json()
+    return _broadcast_to_channel_logic(data)
+
+
+@app.route('/web/broadcast-to-channel', methods=['POST'])
+def web_broadcast_to_channel():
+    """Public endpoint for the landing page without exposing API key to browser."""
+    data = request.get_json()
+    return _broadcast_to_channel_logic(data)
 
 @app.route('/api/channels', methods=['GET'])
 def get_channels():

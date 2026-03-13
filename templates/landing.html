@@ -87,7 +87,6 @@
   </div>
 
   <script>
-    const API_KEY = {{ api_key | tojson }};
     const form = document.getElementById("send-form");
     const result = document.getElementById("result");
 
@@ -114,11 +113,10 @@
       showResult(true, "Sending...");
 
       try {
-        const response = await fetch("/api/broadcast-to-channel", {
+        const response = await fetch("/web/broadcast-to-channel", {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
-            "X-API-Key": API_KEY
+            "Content-Type": "application/json"
           },
           body: JSON.stringify(payload)
         });
