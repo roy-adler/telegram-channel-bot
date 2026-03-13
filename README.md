@@ -8,7 +8,7 @@ This project contains a Telegram channel bot that runs using Docker Compose. The
    ```bash
    # Copy from env.example and update with your values
    TELEGRAM_BOT_TOKEN=your_bot_token_here
-   TELEGRAM_BOT_API_URL=api.telegram.org
+   TELEGRAM_API_URL=api.telegram.org
    TELEGRAM_BOT_PUBLIC_URL=https://yourdomain.com
    TELEGRAM_BOT_SECRET_TOKEN=your_secret_token_here
    ```
